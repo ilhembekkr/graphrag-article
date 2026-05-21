@@ -1,0 +1,1265 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GraphRAG — A technical deep dive</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --bg-soft: #f8fafc;
+        --text: #0f172a;
+        --text-muted: #475569;
+        --text-faint: #94a3b8;
+        --accent: #2563eb;
+        --accent-light: #eff6ff;
+        --accent-dark: #1d4ed8;
+        --border: #e2e8f0;
+        --border-strong: #cbd5e1;
+        --code-bg: #0f172a;
+        --code-text: #e2e8f0;
+        --success: #16a34a;
+        --success-light: #f0fdf4;
+        --danger: #dc2626;
+        --danger-light: #fef2f2;
+        --warning: #d97706;
+        --warning-light: #fffbeb;
+      }
+
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        font-size: 18px;
+        line-height: 1.7;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* layout */
+      .page { max-width: 1180px; margin: 0 auto; padding: 64px 32px 120px; }
+      .article { max-width: 740px; margin: 0 auto; }
+      .article > * { margin-left: auto; margin-right: auto; }
+
+      /* header */
+      .eyebrow {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        color: var(--accent);
+        text-transform: uppercase;
+        margin-bottom: 18px;
+      }
+      h1.title {
+        font-size: 2.85rem;
+        font-weight: 800;
+        letter-spacing: -0.025em;
+        line-height: 1.1;
+        margin: 0 0 18px;
+        color: var(--text);
+      }
+      .dek {
+        font-size: 1.25rem;
+        line-height: 1.55;
+        color: var(--text-muted);
+        margin: 0 0 32px;
+        font-weight: 400;
+      }
+      .meta {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        font-size: 0.92rem;
+        color: var(--text-faint);
+        padding-bottom: 28px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 48px;
+      }
+      .meta .dot { color: var(--border-strong); }
+
+      /* byline */
+      .byline {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin: 0 0 32px;
+      }
+      .byline-avatar {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        object-fit: cover;
+        object-position: top center;
+        border: 1px solid var(--border);
+        background: var(--bg-soft);
+        flex-shrink: 0;
+      }
+      .byline-text { line-height: 1.4; }
+      .byline-name {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .byline-role {
+        font-size: 0.9rem;
+        color: var(--text-muted);
+      }
+      .byline-role a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--border-strong); }
+      .byline-role a:hover { color: var(--accent); border-color: var(--accent); }
+
+      .byline-social {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        margin-left: 8px;
+        color: var(--text-muted);
+        background: var(--bg-soft);
+        border: 1px solid var(--border);
+        transition: color 0.15s, background 0.15s, border-color 0.15s;
+      }
+      .byline-social:hover {
+        color: #fff;
+        background: #0a66c2; /* LinkedIn blue */
+        border-color: #0a66c2;
+      }
+      .byline-social svg { width: 15px; height: 15px; }
+
+      /* TOC */
+      .toc {
+        background: var(--bg-soft);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 20px 24px;
+        margin: 0 0 56px;
+        font-size: 0.95rem;
+      }
+      .toc-label {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--text-faint);
+        margin-bottom: 12px;
+      }
+      .toc ol { margin: 0; padding-left: 22px; }
+      .toc li { margin: 4px 0; }
+      .toc a { color: var(--text); text-decoration: none; }
+      .toc a:hover { color: var(--accent); text-decoration: underline; }
+
+      /* prose */
+      h2 {
+        font-size: 1.85rem;
+        font-weight: 700;
+        letter-spacing: -0.012em;
+        line-height: 1.2;
+        margin: 64px 0 18px;
+        color: var(--text);
+        scroll-margin-top: 24px;
+      }
+      h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 36px 0 12px;
+        color: var(--text);
+      }
+      p {
+        margin: 0 0 18px;
+        color: var(--text);
+      }
+      a { color: var(--accent); }
+      a:hover { color: var(--accent-dark); }
+      strong { font-weight: 600; color: var(--text); }
+      em { color: var(--text-muted); }
+
+      ul, ol { margin: 0 0 18px; padding-left: 24px; }
+      li { margin-bottom: 6px; }
+      li::marker { color: var(--text-faint); }
+
+      /* inline code */
+      :not(pre) > code {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.88em;
+        background: #f1f5f9;
+        color: #0f172a;
+        padding: 2px 6px;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+      }
+
+      /* code block */
+      pre {
+        background: var(--code-bg);
+        color: var(--code-text);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.86rem;
+        line-height: 1.6;
+        padding: 20px 22px;
+        border-radius: 10px;
+        overflow-x: auto;
+        margin: 24px 0;
+      }
+      pre code { background: none; border: none; color: inherit; padding: 0; }
+      .tok-c { color: #94a3b8; font-style: italic; }
+      .tok-k { color: #c4b5fd; }
+      .tok-s { color: #86efac; }
+      .tok-n { color: #fbbf24; }
+      .tok-f { color: #67e8f9; }
+
+      /* callout */
+      .callout {
+        border-left: 3px solid var(--accent);
+        background: var(--accent-light);
+        padding: 16px 20px;
+        border-radius: 0 8px 8px 0;
+        margin: 28px 0;
+        color: var(--text);
+      }
+      .callout.warn { border-color: var(--warning); background: var(--warning-light); }
+      .callout.danger { border-color: var(--danger); background: var(--danger-light); }
+      .callout.ok { border-color: var(--success); background: var(--success-light); }
+      .callout > .label {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+        display: block;
+        margin-bottom: 6px;
+      }
+      .callout.warn > .label { color: var(--warning); }
+      .callout.danger > .label { color: var(--danger); }
+      .callout.ok > .label { color: var(--success); }
+      .callout p:last-child { margin-bottom: 0; }
+
+      /* tables */
+      .table-wrap {
+        margin: 28px 0;
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.94rem;
+      }
+      th, td {
+        text-align: left;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        background: var(--bg-soft);
+        font-weight: 600;
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+      }
+      tr:last-child td { border-bottom: none; }
+
+      /* figures */
+      figure { margin: 36px 0; }
+      figure.wide {
+        max-width: 960px;
+        margin-left: calc((740px - 960px) / 2);
+        margin-right: calc((740px - 960px) / 2);
+      }
+      /* photographic figures stay inside the text column — only synthesized diagrams go wide */
+      figure.wide:has(img) {
+        max-width: 100%;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      figure img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #fff;
+      }
+      figure svg { display: block; width: 100%; height: auto; }
+      figcaption {
+        font-size: 0.88rem;
+        color: var(--text-faint);
+        text-align: center;
+        margin-top: 12px;
+        line-height: 1.5;
+      }
+
+      .diagram {
+        background: var(--bg-soft);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 24px;
+      }
+
+      .footer {
+        margin-top: 80px;
+        padding-top: 32px;
+        border-top: 1px solid var(--border);
+        color: var(--text-faint);
+        font-size: 0.9rem;
+      }
+      .footer-author {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        background: var(--bg-soft);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px 22px;
+      }
+      .footer-author img {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        object-fit: cover;
+        object-position: top center;
+        border: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+      .footer-author-name {
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .footer-author-role {
+        font-size: 0.92rem;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+      .footer-author-blurb {
+        font-size: 0.88rem;
+        color: var(--text-faint);
+        margin-top: 6px;
+        line-height: 1.5;
+      }
+      .footer-thanks {
+        text-align: center;
+        margin-top: 28px;
+        font-size: 0.85rem;
+        color: var(--text-faint);
+      }
+
+      @media (max-width: 1040px) {
+        figure.wide { max-width: 100%; margin-left: 0; margin-right: 0; }
+      }
+      @media (max-width: 720px) {
+        .page { padding: 40px 20px 80px; }
+        body { font-size: 17px; }
+        h1.title { font-size: 2.1rem; }
+        .dek { font-size: 1.1rem; }
+        h2 { font-size: 1.5rem; }
+        h3 { font-size: 1.15rem; }
+        pre { font-size: 0.78rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <article class="article">
+
+        <div class="eyebrow">Retrieval &nbsp;·&nbsp; Knowledge graphs &nbsp;·&nbsp; LLMs</div>
+        <h1 class="title">GraphRAG: a technical deep dive into graph-augmented retrieval</h1>
+        <p class="dek">
+          Vector RAG is great at finding chunks. It is bad at answering questions whose answer doesn't live in any single chunk. GraphRAG fixes that by building a graph and a hierarchy of summaries at indexing time, so synthesis becomes a retrieval problem instead of a hope.
+        </p>
+
+        <div class="byline">
+          <img class="byline-avatar" src="images/ilhem.png" alt="Ilhem Bekkar" />
+          <div class="byline-text">
+            <div class="byline-name">
+              Ilhem Bekkar
+              <a
+                class="byline-social"
+                href="https://www.linkedin.com/in/ilhem-bekkar-8927a11b2/"
+                target="_blank"
+                rel="noopener"
+                aria-label="LinkedIn"
+                title="LinkedIn"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M20.45 20.45h-3.55v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.36V9h3.41v1.56h.05c.47-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0z"/>
+                </svg>
+              </a>
+            </div>
+            <div class="byline-role">Agentic AI Engineer @ Omundu &nbsp;·&nbsp; Research Engineer @ LIRIS</div>
+          </div>
+        </div>
+
+        <div class="meta">
+          <span>~22 min read</span>
+          <span class="dot">·</span>
+          <span>Engineering deep dive</span>
+        </div>
+
+        <nav class="toc">
+          <div class="toc-label">Contents</div>
+          <ol>
+            <li><a href="#problem">The problem with vector RAG</a></li>
+            <li><a href="#pipeline">The GraphRAG pipeline at a glance</a></li>
+            <li><a href="#chunking">Chunking: the most underrated knob</a></li>
+            <li><a href="#extraction">Entity and relationship extraction</a></li>
+            <li><a href="#graph">The knowledge graph and hierarchical Leiden</a></li>
+            <li><a href="#reports">Community reports — the secret sauce</a></li>
+            <li><a href="#local">Local search</a></li>
+            <li><a href="#global">Global search</a></li>
+            <li><a href="#routing">Query modes and agentic routing</a></li>
+            <li><a href="#production">Production concerns</a></li>
+            <li><a href="#close">Mental model and closing</a></li>
+          </ol>
+        </nav>
+
+        <h2 id="problem">1. The problem with vector RAG</h2>
+
+        <p>
+          The default RAG recipe is straightforward. Split documents into chunks, embed them, store the vectors, and at query time pull the top-k chunks closest to the embedded question. Hand that context to an LLM. It works well for a narrow class of questions.
+        </p>
+
+        <p>
+          That class is <strong>localized factual lookups</strong>. "What's the refund policy?" "Which clause covers force majeure?" "What did Alice say in the Q3 review?" These answers sit inside one or two chunks, so vector similarity hands the LLM exactly what it needs.
+        </p>
+
+        <p>The problems start the moment a question requires <em>aggregation across the corpus</em>. Try this one against 200 project post-mortems:</p>
+
+        <div class="callout">
+          <span class="label">Query</span>
+          <p style="margin:0">"What are the recurring risks across all 200 project reports?"</p>
+        </div>
+
+        <p>
+          The answer doesn't live anywhere. It's distributed. Top-k similarity returns the chunks that look <em>most like the question</em>, not a representative sample of risk language across the corpus. You get five paragraphs that say the word "risk" near other words from the query. The LLM does its best, then hallucinates the rest. There is no pre-computed clustering, no aggregation step, no notion of "what this corpus is mostly about" — just nearest neighbors, every time.
+        </p>
+
+        <figure class="wide">
+          <img src="images/main-1.png" alt="Vector RAG retrieves only the nearest cluster in vector space, missing the rest of the corpus." />
+          <figcaption>Vector RAG returns the nearest 2–3 chunks. Theme questions need coverage across clusters; the retrieval sees one.</figcaption>
+        </figure>
+
+        <p>
+          This isn't a tuning problem. You can't fix it with a better embedding model or a larger <code>k</code>. The retrieval primitive — point-wise similarity over chunks — has no mechanism for synthesis. Synthesis is what the LLM is supposed to do at the end of the pipeline, but you can't synthesize what was never retrieved.
+        </p>
+
+        <p>
+          <strong>Do the structural work at indexing time.</strong> Extract entities and relationships, build a graph, partition it into communities, and have an LLM summarize each community before any query arrives. Now there are two retrieval primitives instead of one: walk the graph from a starting entity, or fan out across pre-written community summaries. Synthesis becomes retrieval over summaries — a thing vector RAG can't do because it has no summaries to retrieve.
+        </p>
+
+        <h2 id="pipeline">2. The GraphRAG pipeline at a glance</h2>
+
+        <p>Four steps. Each one is load-bearing.</p>
+
+        <ol>
+          <li><strong>Entity &amp; relationship extraction.</strong> One LLM call per text chunk produces structured tuples — entities with descriptions and typed relationships with strength scores.</li>
+          <li><strong>Graph construction.</strong> Entities become nodes, relationships become edges. Edge weights are the sum of LLM-assigned strengths, not co-occurrence counts.</li>
+          <li><strong>Hierarchical community detection.</strong> The Leiden algorithm partitions the graph recursively into multi-level clusters. Each level trades granularity for cost.</li>
+          <li><strong>Community summarization.</strong> An LLM writes a structured report for every community at every level. These reports are the artifact global search consumes — pre-computed reasoning, persisted to disk.</li>
+        </ol>
+
+        <figure class="wide">
+          <img src="images/main-2.png" alt="GraphRAG pipeline: documents → chunks → extraction → graph → communities → summaries → search." />
+          <figcaption>The pipeline. Build time produces a graph and a tree of community summaries. Query time uses two engines on top: local (walk the graph) and global (map-reduce over summaries).</figcaption>
+        </figure>
+
+        <p>
+          The split that matters is <strong>build-time vs query-time</strong>. Vector RAG does almost nothing at indexing — it embeds and stores. Querying is where all the work happens, and the LLM has to do every bit of reasoning from scratch on context that was retrieved by similarity alone. GraphRAG pushes the work the other way. Indexing is expensive: hundreds to thousands of LLM calls before a user has asked anything. In exchange, query time inherits a graph and a hierarchy of human-readable summaries the LLM can lean on.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>&nbsp;</th><th>Vector RAG</th><th>GraphRAG</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Retrieval</strong></td><td>Top-k chunk similarity</td><td>Graph traversal + community summaries</td></tr>
+              <tr><td><strong>Good at</strong></td><td>Specific, localized facts</td><td>Specific facts <em>and</em> cross-corpus synthesis</td></tr>
+              <tr><td><strong>Fails at</strong></td><td>"Themes across", "recurring", "compare"</td><td>Nothing fundamental — cost/latency tradeoffs</td></tr>
+              <tr><td><strong>Indexing cost</strong></td><td>Low (embed + store)</td><td>High (1 LLM call per chunk + per community)</td></tr>
+              <tr><td><strong>Query latency</strong></td><td>~1s</td><td>Local 1–2s, global 5–15s, drift 10–30s</td></tr>
+              <tr><td><strong>Freshness</strong></td><td>Append a chunk and you're done</td><td>Re-index to keep communities coherent</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="chunking">3. Chunking: the most underrated knob</h2>
+
+        <p>
+          Chunk size is the upstream knob that controls every downstream quality metric in GraphRAG — extraction precision, graph connectivity, community coherence, summary quality, and ultimately the answer.
+        </p>
+
+        <p>
+          The default scheme is unglamorous: fixed-size token windows with overlap. Microsoft's reference implementation ships with 1200 tokens per chunk and 100 tokens of overlap, splitting on token count (not sentences or paragraphs). Chunks carry their metadata forward so extraction prompts can see what document they came from.
+        </p>
+
+        <figure class="wide">
+          <img src="images/chunks-1.png" alt="A document is split into 1200-token TextUnits with 100-token overlap; each unit feeds the extraction step." />
+          <figcaption>Token-based fixed-size chunking. Each TextUnit becomes the input to one extraction call.</figcaption>
+        </figure>
+
+        <p>
+          Size is a cost decision and a quality decision, and the two pull opposite ways.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Chunk size</th><th>Extraction quality</th><th>Cost</th><th>When to pick it</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>~300 tokens</strong></td><td>Very high precision; misses cross-paragraph relations</td><td>Very high</td><td>Fine-grained provenance, regulated content</td></tr>
+              <tr><td><strong>~1200 tokens</strong> (default)</td><td>Catches cross-paragraph context; good balance</td><td>Moderate</td><td>General purpose — start here</td></tr>
+              <tr><td><strong>2000+ tokens</strong></td><td>Loses fine-grained entities</td><td>Low</td><td>Cost-sensitive analysis over coarse documents</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          The cost lever is large. A 26,000-word document at 300-token chunks generates around 260 extraction calls. At 1200 tokens, the same document is ~26 calls. Same model, same prompt — a 10× difference, before you've considered summarization or embeddings.
+        </p>
+
+        <div class="callout warn">
+          <span class="label">Watch out</span>
+          <p>Smaller chunks aren't strictly better even at infinite budget. Below ~300 tokens the extractor frequently sees only one side of a relationship and produces dangling entities. Shrinking past the point where context spans the chunk boundary actively hurts the graph.</p>
+        </div>
+
+        <h2 id="extraction">4. Entity and relationship extraction</h2>
+
+        <p>
+          For each chunk, GraphRAG makes one LLM call with a prompt that asks for two lists: entities and the relationships between them. The output isn't free-form prose — it's structured tuples the indexer can parse and merge.
+        </p>
+
+        <pre><code><span class="tok-c"># entity tuple</span>
+(<span class="tok-s">"entity"</span> | <span class="tok-n">ENTITY_NAME</span> | <span class="tok-n">ENTITY_TYPE</span> | <span class="tok-s">"description"</span>)
+
+<span class="tok-c"># relationship tuple</span>
+(<span class="tok-s">"relationship"</span> | <span class="tok-n">SOURCE</span> | <span class="tok-n">TARGET</span> | <span class="tok-s">"why related"</span> | <span class="tok-n">STRENGTH</span>)
+
+<span class="tok-c"># concrete example, from a chunk about an acquisition</span>
+(<span class="tok-s">"entity"</span> | <span class="tok-n">QUANTUM_SYSTEMS</span> | <span class="tok-n">ORGANIZATION</span> | <span class="tok-s">"A tech company that acquired NeoChip for $28B."</span>)
+(<span class="tok-s">"entity"</span> | <span class="tok-n">NEOCHIP</span> | <span class="tok-n">ORGANIZATION</span> | <span class="tok-s">"A semiconductor firm acquired by Quantum Systems."</span>)
+(<span class="tok-s">"relationship"</span> | <span class="tok-n">QUANTUM_SYSTEMS</span> | <span class="tok-n">NEOCHIP</span> | <span class="tok-s">"Acquired in a $28B deal."</span> | <span class="tok-n">9</span>)
+</code></pre>
+
+        <p>
+          The <strong>description</strong> field, on both entities and relationships, is the part that distinguishes GraphRAG from generic information-extraction pipelines. The graph isn't built from labels alone. Each node carries a paragraph of grounded prose pulled directly from the chunk it appeared in, and each edge carries an explanation of why the two endpoints are related. Local search later concatenates those descriptions into the LLM's context window — they are the "retrieved text" of GraphRAG.
+        </p>
+
+        <p>
+          The <strong>strength</strong> score is the LLM's own assessment of how strong the relationship is. When the same pair of entities appears in multiple chunks, the final edge weight is the <em>sum</em> of those strengths — not a count of occurrences. Two chunks mentioning "Alice founded Acme" with strength 9 each produce a stronger edge than five chunks mentioning them in passing with strength 2. This is what makes Leiden behave well on the graph later: edge weight tracks semantic importance, not lexical frequency.
+        </p>
+
+        <figure class="wide">
+          <img src="images/extract-1.png" alt="One chunk is processed by an extraction prompt into entity and relationship tuples, then deduplicated and summarized." />
+          <figcaption>One LLM call per chunk produces structured tuples. Deduplication and summarization fold duplicates into a single canonical entity.</figcaption>
+        </figure>
+
+        <h3>Anatomy of the extraction prompt</h3>
+
+        <p>The prompt has four parts. Each one is a place where the default will fight you if you don't tune it:</p>
+
+        <ol>
+          <li><strong>Instructions</strong> — how to extract, what shape the output must take.</li>
+          <li><strong>Few-shot examples</strong> — about 15 entities and 12 relationships, restricted to Geo, Person, Event, and Organization in the default ship.</li>
+          <li><strong>The chunk itself.</strong></li>
+          <li><strong>Gleanings</strong> — a multi-turn loop that asks the model whether it missed anything on the first pass. Cheap pass, often worth it.</li>
+        </ol>
+
+        <div class="callout warn">
+          <span class="label">Where defaults break</span>
+          <p>The shipped few-shot examples are about businesspeople and geography. Point this pipeline at a technical codebase, a clinical corpus, or a legal contract and it will dutifully extract people and places while ignoring the things you actually care about — functions, dosages, parties. You have to tell it what an entity <em>is</em> in your domain.</p>
+        </div>
+
+        <p>
+          For an agentic-AI codebase, sensible types are <code>Function</code>, <code>Module</code>, <code>API</code>, <code>DataSource</code>, <code>Agent</code>, <code>Tool</code>, <code>Prompt</code>, <code>Risk</code>. For clinical notes you want <code>Symptom</code>, <code>Medication</code>, <code>Procedure</code>, <code>Condition</code>. The CLI ships a generator that takes a sample of your corpus and produces a domain-specific persona and example set:
+        </p>
+
+        <pre><code>graphrag prompt-tune --root ./data --domain <span class="tok-s">"clinical-trial-reports"</span></code></pre>
+
+        <p>
+          Run it. The generated prompts aren't perfect, but they're dramatically better than the defaults and they take five minutes to produce.
+        </p>
+
+        <h3>Deduplication and entity summarization</h3>
+
+        <p>
+          A name like "Jon" might be extracted 82 times across 60 chunks, each time with a slightly different description. Deduplication groups by exact string match on the <code>(name, type)</code> pair and asks an LLM to consolidate the descriptions into one canonical paragraph.
+        </p>
+
+        <p>
+          The hard limit, and you should know it before deploying anything: <strong>this is not entity resolution.</strong> "Jon" and "Jon Márquez" stay as two distinct nodes. "Acme" and "Acme Corp" stay separate. There is no surface-form linking, no coreference, no embedding-based clustering of entity names. If your corpus has variant spellings of important entities, you will see them as siblings in the graph. Mitigations are post-processing your own coreference pass, normalizing surface forms before extraction, or constraining the few-shot examples to push the LLM toward canonical names. None of them are free.
+        </p>
+
+        <h3>Cheap mode</h3>
+
+        <p>
+          There is a "fast" indexing path that swaps the LLM extractor for NLTK/spaCy noun-phrase extraction plus co-occurrence edges. Chunks shrink to 50–100 tokens. Cost drops by an order of magnitude or more, descriptions effectively vanish, and community summaries get noticeably thinner. Useful for evaluation, prototyping, or domains where you only need a graph skeleton. Don't ship it as your main retrieval path.
+        </p>
+
+        <h2 id="graph">5. The knowledge graph and hierarchical Leiden</h2>
+
+        <p>
+          Nodes are entities, edges are relationships, weights are summed strengths. The interesting question is what to do with the graph once you have it.
+        </p>
+
+        <figure class="wide">
+          <div class="diagram">
+            <svg viewBox="0 0 920 380" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;">
+              <!-- Community A: startup funding (purple) -->
+              <!-- in-community edges -->
+              <line x1="170" y1="120" x2="280" y2="80"  stroke="#a78bfa" stroke-width="3"   opacity="0.7"/>
+              <line x1="170" y1="120" x2="240" y2="200" stroke="#a78bfa" stroke-width="2"   opacity="0.7"/>
+              <line x1="280" y1="80"  x2="240" y2="200" stroke="#a78bfa" stroke-width="4.5" opacity="0.75"/>
+              <line x1="280" y1="80"  x2="120" y2="220" stroke="#a78bfa" stroke-width="2"   opacity="0.65"/>
+              <line x1="240" y1="200" x2="120" y2="220" stroke="#a78bfa" stroke-width="2.5" opacity="0.7"/>
+              <!-- nodes -->
+              <circle cx="170" cy="120" r="22" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+              <text x="170" y="125" text-anchor="middle" font-size="11" fill="#4c1d95" font-weight="600">Alice</text>
+              <circle cx="280" cy="80"  r="32" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+              <text x="280" y="85"  text-anchor="middle" font-size="11" fill="#4c1d95" font-weight="600">Acme Corp</text>
+              <circle cx="240" cy="200" r="24" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+              <text x="240" y="205" text-anchor="middle" font-size="11" fill="#4c1d95" font-weight="600">Bob</text>
+              <circle cx="120" cy="220" r="20" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+              <text x="120" y="225" text-anchor="middle" font-size="10" fill="#4c1d95" font-weight="600">Series B</text>
+
+              <!-- Community B: semiconductor (green) -->
+              <line x1="640" y1="90"  x2="740" y2="130" stroke="#34d399" stroke-width="3.5" opacity="0.7"/>
+              <line x1="640" y1="90"  x2="700" y2="210" stroke="#34d399" stroke-width="2.5" opacity="0.7"/>
+              <line x1="740" y1="130" x2="700" y2="210" stroke="#34d399" stroke-width="3"   opacity="0.7"/>
+              <line x1="740" y1="130" x2="830" y2="180" stroke="#34d399" stroke-width="2"   opacity="0.65"/>
+              <!-- nodes -->
+              <circle cx="640" cy="90"  r="26" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+              <text x="640" y="94"  text-anchor="middle" font-size="11" fill="#064e3b" font-weight="600">NeoChip</text>
+              <circle cx="740" cy="130" r="22" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+              <text x="740" y="134" text-anchor="middle" font-size="11" fill="#064e3b" font-weight="600">Clara</text>
+              <circle cx="700" cy="210" r="20" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+              <text x="700" y="214" text-anchor="middle" font-size="11" fill="#064e3b" font-weight="600">IPO</text>
+              <circle cx="830" cy="180" r="18" fill="#d1fae5" stroke="#059669" stroke-width="1.5"/>
+              <text x="830" y="184" text-anchor="middle" font-size="10" fill="#064e3b" font-weight="600">Tokyo</text>
+
+              <!-- Community C: green energy (orange) -->
+              <line x1="380" y1="290" x2="470" y2="270" stroke="#fb923c" stroke-width="3"   opacity="0.7"/>
+              <line x1="470" y1="270" x2="560" y2="300" stroke="#fb923c" stroke-width="3.5" opacity="0.7"/>
+              <line x1="380" y1="290" x2="320" y2="340" stroke="#fb923c" stroke-width="2.5" opacity="0.7"/>
+              <line x1="470" y1="270" x2="560" y2="340" stroke="#fb923c" stroke-width="2"   opacity="0.65"/>
+              <!-- nodes -->
+              <circle cx="380" cy="290" r="22" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5"/>
+              <text x="380" y="294" text-anchor="middle" font-size="11" fill="#7c2d12" font-weight="600">Dave</text>
+              <circle cx="470" cy="270" r="28" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5"/>
+              <text x="470" y="274" text-anchor="middle" font-size="11" fill="#7c2d12" font-weight="600">GreenTech</text>
+              <circle cx="560" cy="300" r="20" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5"/>
+              <text x="560" y="304" text-anchor="middle" font-size="11" fill="#7c2d12" font-weight="600">Grant</text>
+              <circle cx="320" cy="340" r="18" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5"/>
+              <text x="320" y="344" text-anchor="middle" font-size="10" fill="#7c2d12" font-weight="600">Berlin</text>
+              <circle cx="560" cy="340" r="16" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5"/>
+              <text x="560" y="344" text-anchor="middle" font-size="10" fill="#7c2d12" font-weight="600">Solar</text>
+
+              <!-- Cross-community (dashed) bridges -->
+              <line x1="280" y1="80"  x2="640" y2="90"  stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4"/>
+              <line x1="240" y1="200" x2="470" y2="270" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4"/>
+              <line x1="700" y1="210" x2="560" y2="300" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4"/>
+
+              <!-- Legend -->
+              <g transform="translate(20,355)" font-size="11" fill="#475569">
+                <circle cx="6" cy="0" r="6" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.2"/>
+                <text x="18" y="4">Community A · startup funding</text>
+                <circle cx="246" cy="0" r="6" fill="#d1fae5" stroke="#059669" stroke-width="1.2"/>
+                <text x="258" y="4">Community B · semiconductor</text>
+                <circle cx="478" cy="0" r="6" fill="#ffedd5" stroke="#ea580c" stroke-width="1.2"/>
+                <text x="490" y="4">Community C · green energy</text>
+                <line x1="700" y1="0" x2="720" y2="0" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4"/>
+                <text x="726" y="4">cross-community link</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption>The materialized graph. Node size scales with degree (hubs like Acme Corp and GreenTech emerge), edge thickness with weight, dashed edges bridge communities. Color encodes community membership — the output of Leiden, not a manual assignment.</figcaption>
+        </figure>
+
+        <p>
+          GraphRAG runs <strong>hierarchical Leiden</strong> on this graph. Leiden is a community-detection algorithm in the modularity family; the "hierarchical" part means it applies recursively, splitting each community further until a size threshold is hit. The output is a tree of partitions at successive levels of resolution.
+        </p>
+
+        <p>
+          The level number matters because it directly controls the cost and granularity of global search later. Level 0 is the coarsest partition — maybe ten communities covering the entire corpus. Level 2+ can produce thousands.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Level</th><th>Granularity</th><th>~ # communities</th><th>Use</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>0</td><td>Coarsest</td><td>5–15</td><td>Broad themes, cheap global search</td></tr>
+              <tr><td>1</td><td>Medium</td><td>50–100</td><td>Balanced detail vs. cost</td></tr>
+              <tr><td>2+</td><td>Finest</td><td>100s–1000s</td><td>Detailed analysis</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          Within a level, the partition has a clean invariant: every entity belongs to exactly one community, and the communities are non-overlapping. Across levels, the hierarchy is strict — a Level 1 community is a subset of one Level 0 community. This is what makes the next step work.
+        </p>
+
+        <h3>What gets materialized</h3>
+
+        <p>
+          The output of indexing is a set of parquet tables, not a service. The chain is fully traceable end to end:
+        </p>
+
+        <pre><code>documents
+  ↓
+text_units            <span class="tok-c"># chunks + character offsets</span>
+  ↓
+entities              <span class="tok-c"># name, type, description, embedding</span>
+relationships         <span class="tok-c"># source, target, description, weight</span>
+  ↓
+communities           <span class="tok-c"># parent_id, level, entity_ids[]</span>
+community_reports     <span class="tok-c"># title, summary, rating, findings[]</span>
+
+vector_store/         <span class="tok-c"># embeddings for entities, text_units, reports</span></code></pre>
+
+        <p>
+          Every claim in a community report points at entity IDs and relationship IDs. Those point at text unit offsets. Those point back at the source document. If a downstream answer cites a finding, you can walk all the way back to the sentence it came from. This is the property compliance and audit teams care about, and it's the property vector RAG cannot give you.
+        </p>
+
+        <h2 id="reports">6. Community reports — the secret sauce</h2>
+
+        <p>
+          Community reports are the construct that makes GraphRAG work as a synthesis engine. If you only remember one section of this article, remember this one.
+        </p>
+
+        <p>
+          For every community at every level, an LLM is given the entities, relationships, and (for non-leaf communities) the sub-community reports it contains, and asked to write a structured report. The schema is rigid:
+        </p>
+
+        <pre><code>{
+  <span class="tok-s">"title"</span>:   <span class="tok-c">// short, specific, names the entities</span>
+  <span class="tok-s">"summary"</span>: <span class="tok-c">// executive summary of structure + themes</span>
+  <span class="tok-s">"rating"</span>:  <span class="tok-c">// 0–10 impact severity</span>
+  <span class="tok-s">"rating_explanation"</span>: <span class="tok-c">// why this rating</span>
+  <span class="tok-s">"findings"</span>: [
+    {
+      <span class="tok-s">"summary"</span>:     <span class="tok-c">// one-line finding headline</span>
+      <span class="tok-s">"explanation"</span>: <span class="tok-c">// grounded explanation with [Data: ...] refs</span>
+      <span class="tok-s">"references"</span>:  <span class="tok-c">// ["entity_id:123", "relationship_id:456", ...]</span>
+    },
+    <span class="tok-c">// 5–10 findings total</span>
+  ]
+}</code></pre>
+
+        <figure class="wide">
+          <div class="diagram">
+            <svg viewBox="0 0 920 360" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;">
+              <!-- level labels (left rail) -->
+              <g font-family="JetBrains Mono, monospace" font-size="10.5" font-weight="600" letter-spacing="1.5" fill="#94a3b8">
+                <text x="20" y="64">LEVEL 0</text>
+                <text x="20" y="68" font-size="9" fill="#cbd5e1">coarsest</text>
+                <text x="20" y="174">LEVEL 1</text>
+                <text x="20" y="178" font-size="9" fill="#cbd5e1">medium</text>
+                <text x="20" y="284">LEVEL 2</text>
+                <text x="20" y="288" font-size="9" fill="#cbd5e1">finest</text>
+              </g>
+
+              <!-- guide rails -->
+              <line x1="110" y1="60"  x2="900" y2="60"  stroke="#f1f5f9" stroke-width="1"/>
+              <line x1="110" y1="170" x2="900" y2="170" stroke="#f1f5f9" stroke-width="1"/>
+              <line x1="110" y1="280" x2="900" y2="280" stroke="#f1f5f9" stroke-width="1"/>
+
+              <!-- edges: L0 → L1 -->
+              <line x1="500" y1="80"  x2="260" y2="148" stroke="#cbd5e1" stroke-width="1.4"/>
+              <line x1="500" y1="80"  x2="500" y2="148" stroke="#cbd5e1" stroke-width="1.4"/>
+              <line x1="500" y1="80"  x2="740" y2="148" stroke="#cbd5e1" stroke-width="1.4"/>
+
+              <!-- edges: Community A → L2 children -->
+              <line x1="260" y1="192" x2="180" y2="258" stroke="#cbd5e1" stroke-width="1.4"/>
+              <line x1="260" y1="192" x2="340" y2="258" stroke="#cbd5e1" stroke-width="1.4"/>
+
+              <!-- Level 0 — root -->
+              <rect x="370" y="40" width="260" height="44" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+              <text x="500" y="62" text-anchor="middle" font-size="13" font-weight="700" fill="#0f172a">Root community</text>
+              <text x="500" y="78" text-anchor="middle" font-size="11" fill="#64748b">all 12 entities · 1 report</text>
+
+              <!-- Level 1 — three communities -->
+              <rect x="160" y="148" width="200" height="46" rx="10" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.2"/>
+              <text x="260" y="170" text-anchor="middle" font-size="13" font-weight="700" fill="#4c1d95">Community A</text>
+              <text x="260" y="186" text-anchor="middle" font-size="11" fill="#5b21b6">4 entities · 5 edges</text>
+
+              <rect x="400" y="148" width="200" height="46" rx="10" fill="#d1fae5" stroke="#059669" stroke-width="1.2"/>
+              <text x="500" y="170" text-anchor="middle" font-size="13" font-weight="700" fill="#064e3b">Community B</text>
+              <text x="500" y="186" text-anchor="middle" font-size="11" fill="#065f46">4 entities · 4 edges</text>
+
+              <rect x="640" y="148" width="200" height="46" rx="10" fill="#ffedd5" stroke="#ea580c" stroke-width="1.2"/>
+              <text x="740" y="170" text-anchor="middle" font-size="13" font-weight="700" fill="#7c2d12">Community C</text>
+              <text x="740" y="186" text-anchor="middle" font-size="11" fill="#9a3412">4 entities · 4 edges</text>
+
+              <!-- Level 2 — children of A -->
+              <rect x="100" y="258" width="160" height="42" rx="10" fill="#f5f3ff" stroke="#a78bfa" stroke-width="1.2"/>
+              <text x="180" y="278" text-anchor="middle" font-size="12" font-weight="600" fill="#4c1d95">Alice + Acme</text>
+              <text x="180" y="293" text-anchor="middle" font-size="10" fill="#7c3aed">founder &amp; company</text>
+
+              <rect x="260" y="258" width="160" height="42" rx="10" fill="#f5f3ff" stroke="#a78bfa" stroke-width="1.2"/>
+              <text x="340" y="278" text-anchor="middle" font-size="12" font-weight="600" fill="#4c1d95">Bob + Series B</text>
+              <text x="340" y="293" text-anchor="middle" font-size="10" fill="#7c3aed">investor &amp; round</text>
+
+              <!-- ellipsis indicating B and C also have children -->
+              <text x="500" y="282" text-anchor="middle" font-size="11" fill="#94a3b8" font-style="italic">B and C split further at level 2 …</text>
+
+              <!-- footer note -->
+              <g transform="translate(0,328)">
+                <text x="460" y="0" text-anchor="middle" font-size="11.5" fill="#475569">
+                  Each box gets its own LLM-generated report. Higher levels summarize their children.
+                </text>
+              </g>
+            </svg>
+          </div>
+          <figcaption>Hierarchical Leiden produces a tree of communities. Each node in the tree — root, mid-level, leaf — gets its own LLM-generated report; parent reports are written from the children's reports, not the raw entities.</figcaption>
+        </figure>
+
+        <p>
+          <strong>Grounded references.</strong> The prompt instructs the LLM to cite entity IDs and relationship IDs for every claim, in the form <code>[Data: Entities (12, 18); Relationships (7)]</code>. The LLM is also told not to include information that isn't supported by the source data. This isn't watertight — LLMs hallucinate — but the structural requirement to cite IDs you can later verify cuts the failure rate substantially and gives you a place to audit when something looks wrong.
+        </p>
+
+        <p>
+          <strong>Impact rating.</strong> Every report gets a 0–10 severity score. For a corpus of project risks this captures how serious the cluster is; for fiction, dramatic intensity; for customer feedback, complaint severity. The rating doesn't drive ranking directly — global search's reduce step ranks by the per-point ratings produced at map time (see §8) — but the community severity informs the map prompt and survives transitively into the reduce ordering. Without it, the LLM has no notion of which clusters in your corpus actually matter.
+        </p>
+
+        <p>
+          <strong>Hierarchical substitution.</strong> A Level 0 community might contain 300 entities and 800 relationships. Their raw descriptions don't fit in any context window. So when GraphRAG writes the Level 0 report, it doesn't see raw entities — it sees the <em>reports</em> from the Level 1 children. The Level 0 report is then a summary of summaries, grounded transitively through the children to the original text. This is what lets community reports scale to large corpora: the tree absorbs the context-window problem.
+        </p>
+
+        <div class="callout ok">
+          <span class="label">Why this is the right primitive</span>
+          <p>Community reports turn synthesis from an inference-time problem into a retrieval problem. The LLM has already done the cross-document reading work at indexing time. At query time you don't ask it to synthesize — you ask it to filter and re-rank pre-written findings.</p>
+        </div>
+
+        <h2 id="local">7. Local search</h2>
+
+        <p>
+          Local search is the engine for questions whose answer is concentrated around a specific entity or small subgraph. "What's Laura's connection to the merger?" "Which functions call the rate limiter?" "What did Acme acquire last year?"
+        </p>
+
+        <p>It runs in five steps:</p>
+
+        <figure class="wide">
+          <div class="diagram">
+            <svg viewBox="0 0 920 220" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;">
+              <defs>
+                <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+                </marker>
+              </defs>
+              <g>
+                <rect x="10"  y="70" width="160" height="80" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
+                <text x="90"  y="100" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="600">1 · Embed query</text>
+                <text x="90"  y="122" text-anchor="middle" font-size="11" fill="#475569">"What retribution</text>
+                <text x="90"  y="137" text-anchor="middle" font-size="11" fill="#475569">is Laura seeking?"</text>
+              </g>
+              <g>
+                <rect x="190" y="70" width="160" height="80" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
+                <text x="270" y="100" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="600">2 · Match entities</text>
+                <text x="270" y="122" text-anchor="middle" font-size="11" fill="#475569">cosine vs entity</text>
+                <text x="270" y="137" text-anchor="middle" font-size="11" fill="#475569">embeddings · top 10</text>
+              </g>
+              <g>
+                <rect x="370" y="70" width="160" height="80" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
+                <text x="450" y="100" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="600">3 · Traverse graph</text>
+                <text x="450" y="122" text-anchor="middle" font-size="11" fill="#475569">walk neighbors,</text>
+                <text x="450" y="137" text-anchor="middle" font-size="11" fill="#475569">collect edges + covariates</text>
+              </g>
+              <g>
+                <rect x="550" y="70" width="160" height="80" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
+                <text x="630" y="100" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="600">4 · Pull context</text>
+                <text x="630" y="122" text-anchor="middle" font-size="11" fill="#475569">source chunks +</text>
+                <text x="630" y="137" text-anchor="middle" font-size="11" fill="#475569">community report</text>
+              </g>
+              <g>
+                <rect x="730" y="70" width="180" height="80" rx="10" fill="#dbeafe" stroke="#93c5fd"/>
+                <text x="820" y="100" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="700">5 · LLM answer</text>
+                <text x="820" y="122" text-anchor="middle" font-size="11" fill="#475569">structured context</text>
+                <text x="820" y="137" text-anchor="middle" font-size="11" fill="#475569">→ grounded response</text>
+              </g>
+              <line x1="170" y1="110" x2="190" y2="110" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+              <line x1="350" y1="110" x2="370" y2="110" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+              <line x1="530" y1="110" x2="550" y2="110" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+              <line x1="710" y1="110" x2="730" y2="110" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+            </svg>
+          </div>
+          <figcaption>Local search: vector similarity finds entry-point entities, then the graph carries the retrieval from there.</figcaption>
+        </figure>
+
+        <p>
+          Step 2 is the only place vector similarity does anything in this flow, and it's against <em>entity embeddings</em>, not chunk embeddings. The default config matches the top 10 entities, oversampled 2× to 20 candidates before ranking. From there the graph does the work: neighbors, edges, covariates (time-bound claims attached to entities, if you configured them), and finally the source chunks the matched entities appear in.
+        </p>
+
+        <h3>The context budget</h3>
+
+        <p>
+          Step 4 is where most teams over- or under-spend. Local search uses a fixed token budget — 12,000 by default — and the prompt sections compete for it. The default allocation is:
+        </p>
+
+        <ul>
+          <li><strong>50% text units</strong> — the raw source chunks where matched entities appear.</li>
+          <li><strong>40% entity + relationship descriptions</strong> — the structured, LLM-written context.</li>
+          <li><strong>10% community report</strong> — the surrounding cluster's report, for orientation.</li>
+        </ul>
+
+        <p>
+          Relationship ranking inside the 40% slice has its own rule. <strong>In-network</strong> edges, where both endpoints matched the query, go first. <strong>Out-network</strong> edges, where only one endpoint matched, are ranked below in-network but kept — they're the source of "surprising context" answers, where the model knows something connected to your query that you didn't ask about. Cut them entirely and answer quality drops in a way that's hard to see in eval but obvious in user-facing demos.
+        </p>
+
+        <p>
+          For "What retribution is Laura seeking?" — vector RAG looks for chunks where the tokens "Laura" and "retribution" appear close together. Local search finds the entity <em>Laura</em>, walks her relationships (rivals, allies, grievances, locations), pulls her community's report for context, and only then retrieves the chunks where she's named. The retrieval is structured by who she is, not by which words happen to be near her name.
+        </p>
+
+        <h2 id="global">8. Global search</h2>
+
+        <p>
+          Global search is the engine for the questions vector RAG can't touch. "What are the recurring themes?" "Compare risk profiles across these projects." "Summarize the antagonists." These questions don't have an entry-point entity, and the answer is distributed across the corpus.
+        </p>
+
+        <p>
+          The mechanism is map-reduce over community reports at a chosen level.
+        </p>
+
+        <figure class="wide">
+          <div class="diagram">
+            <svg viewBox="0 0 920 320" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;">
+              <defs>
+                <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+                </marker>
+              </defs>
+              <rect x="380" y="10" width="160" height="48" rx="8" fill="#dbeafe" stroke="#93c5fd"/>
+              <text x="460" y="32" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="700">Query</text>
+              <text x="460" y="49" text-anchor="middle" font-size="11" fill="#475569">"Recurring themes?"</text>
+              <text x="200" y="92" text-anchor="middle" font-size="11" fill="#94a3b8" font-weight="600" letter-spacing="2">MAP · PARALLEL</text>
+              <g font-size="12" fill="#0f172a">
+                <rect x="60"  y="105" width="280" height="38" rx="6" fill="#fff" stroke="#e2e8f0"/>
+                <text x="76" y="129" font-size="12">Community report #1 → LLM → [points]</text>
+                <rect x="60"  y="148" width="280" height="38" rx="6" fill="#fff" stroke="#e2e8f0"/>
+                <text x="76" y="172" font-size="12">Community report #2 → LLM → [points]</text>
+                <rect x="60"  y="191" width="280" height="38" rx="6" fill="#fff" stroke="#e2e8f0"/>
+                <text x="76" y="215" font-size="12">Community report #3 → LLM → [points]</text>
+                <text x="200" y="248" text-anchor="middle" font-size="11" fill="#94a3b8" font-style="italic">… one call per report, all in parallel</text>
+              </g>
+              <line x1="380" y1="50" x2="340" y2="124" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
+              <line x1="380" y1="50" x2="340" y2="167" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
+              <line x1="380" y1="50" x2="340" y2="210" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
+              <rect x="580" y="120" width="280" height="100" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
+              <text x="720" y="143" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="700">REDUCE</text>
+              <text x="720" y="165" text-anchor="middle" font-size="11" fill="#475569">collect all points</text>
+              <text x="720" y="181" text-anchor="middle" font-size="11" fill="#475569">rank by impact_rating</text>
+              <text x="720" y="197" text-anchor="middle" font-size="11" fill="#475569">LLM synthesizes top-N</text>
+              <text x="720" y="213" text-anchor="middle" font-size="11" fill="#475569">into single answer</text>
+              <line x1="345" y1="124" x2="580" y2="155" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
+              <line x1="345" y1="167" x2="580" y2="170" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
+              <line x1="345" y1="210" x2="580" y2="185" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
+              <rect x="620" y="265" width="200" height="38" rx="6" fill="#dcfce7" stroke="#86efac"/>
+              <text x="720" y="289" text-anchor="middle" font-size="12" fill="#14532d" font-weight="600">Final answer</text>
+              <line x1="720" y1="220" x2="720" y2="265" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
+            </svg>
+          </div>
+          <figcaption>Global search: each community report is mapped to a list of points relevant to the query, then ranked and reduced into a single answer.</figcaption>
+        </figure>
+
+        <p>
+          The map step fans out one LLM call per community report, in parallel. Each call returns a JSON list of points, with each point carrying its own per-query relevance score on a 0–100 scale (distinct from the community-report severity rating, which lives on a 0–10 scale and is set at indexing time):
+        </p>
+
+        <pre><code><span class="tok-c"># for each community report at level L (parallel)</span>
+prompt = f<span class="tok-s">"""
+You are given a community report and a user query.
+Extract the points from this report that are relevant
+to the query. For each point, give an importance rating 0–100.
+
+Return strict JSON: [{{ "point": str, "rating": int }}]
+
+Community report: {report}
+Query: {query}
+"""</span></code></pre>
+
+        <p>The reduce step collects every point across every batch, sorts by rating, and asks the LLM one more time:</p>
+
+        <pre><code><span class="tok-c"># reduce</span>
+prompt = f<span class="tok-s">"""
+Synthesize the highest-rated points below into a single
+coherent answer to the user's query. Preserve citations.
+
+Points: {ranked_points}
+Query: {query}
+"""</span></code></pre>
+
+        <p>
+          The level you pick controls the bill. Level 0 might be ten community reports — ten map calls, one reduce call. Level 2 might be a thousand. The granularity of the answer scales with the level, but so does the cost and the latency.
+        </p>
+
+        <h3>Dynamic community selection</h3>
+
+        <p>
+          Brute-force global search at Level 2 is expensive and, more importantly, much of the cost is wasted. The query "recurring risks in financial reports" doesn't need to map over a community about office furniture. Dynamic selection fixes this.
+        </p>
+
+        <p>
+          The algorithm walks the community tree from the root. At each node, an LLM is given the community's report and the user query and asked, in effect: "is this community's content relevant to this query?" Irrelevant subtrees are pruned. Relevant ones are descended into. The map step is only ever run on the surviving leaves.
+        </p>
+
+        <p>
+          The cost savings are large — typically 5–10× — but the more interesting result is that <strong>quality often improves</strong>. With brute-force selection, the reduce step is fed points extracted from hundreds of irrelevant reports, and many of them are noise that happened to keyword-match the query. Pruning at the tree level keeps that noise out of the reduce context entirely. The LLM ends up with a smaller, cleaner set of points to synthesize.
+        </p>
+
+        <div class="callout ok">
+          <span class="label">Default this on</span>
+          <p>In production, dynamic selection is not a tuning knob. It's the only sensible default for global search past a few dozen communities.</p>
+        </div>
+
+        <h2 id="routing">9. Query modes and agentic routing</h2>
+
+        <p>
+          GraphRAG ships four query engines. Each one has a workload it's good at, and forcing the user to pick is the wrong design.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Mode</th><th>Best for</th><th>Mechanism</th><th>Latency</th><th>Cost</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>basic</code></td>
+                <td>Simple lookups, baseline</td>
+                <td>Top-k vector search over chunks</td>
+                <td>&lt;1s</td>
+                <td>Low</td>
+              </tr>
+              <tr>
+                <td><code>local</code></td>
+                <td>Entity-anchored questions</td>
+                <td>Embed → entities → graph walk → context</td>
+                <td>1–2s</td>
+                <td>Medium</td>
+              </tr>
+              <tr>
+                <td><code>global</code></td>
+                <td>Themes, comparisons, overviews</td>
+                <td>Map-reduce over community reports</td>
+                <td>5–15s</td>
+                <td>High</td>
+              </tr>
+              <tr>
+                <td><code>drift</code></td>
+                <td>Complex — breadth <em>and</em> depth</td>
+                <td>Global → local drilling via LLM follow-ups</td>
+                <td>10–30s</td>
+                <td>Highest</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          DRIFT (Dynamic Reasoning and Inference with Flexible Traversal) starts with global, gets a broad answer, then has an LLM generate follow-up questions that local search drills into. The output mixes the breadth of global with the precision of local. It's the mode users like best when latency budgets allow.
+        </p>
+
+        <h3>Routing</h3>
+
+        <p>
+          Don't expose the four modes to users. Route automatically. A small classifier or even a keyword heuristic catches most of the traffic, and the router's cost is negligible next to running the wrong mode.
+        </p>
+
+        <pre><code><span class="tok-k">def</span> <span class="tok-f">route</span>(query: str) -> str:
+    q = query.lower()
+
+    <span class="tok-c"># broad thematic signals → global</span>
+    <span class="tok-k">if</span> any(w <span class="tok-k">in</span> q <span class="tok-k">for</span> w <span class="tok-k">in</span> [<span class="tok-s">"themes"</span>, <span class="tok-s">"summary"</span>, <span class="tok-s">"overview"</span>, <span class="tok-s">"main"</span>, <span class="tok-s">"across"</span>, <span class="tok-s">"all"</span>]):
+        <span class="tok-k">return</span> <span class="tok-s">"global"</span>
+
+    <span class="tok-c"># named-entity / factual signals → local</span>
+    <span class="tok-k">if</span> any(w <span class="tok-k">in</span> q <span class="tok-k">for</span> w <span class="tok-k">in</span> [<span class="tok-s">"who"</span>, <span class="tok-s">"what is"</span>, <span class="tok-s">"module"</span>, <span class="tok-s">"function"</span>, <span class="tok-s">"depends on"</span>]):
+        <span class="tok-k">return</span> <span class="tok-s">"local"</span>
+
+    <span class="tok-c"># comparative / causal → drift</span>
+    <span class="tok-k">if</span> <span class="tok-s">"compare"</span> <span class="tok-k">in</span> q <span class="tok-k">or</span> <span class="tok-s">"why"</span> <span class="tok-k">in</span> q:
+        <span class="tok-k">return</span> <span class="tok-s">"drift"</span>
+
+    <span class="tok-k">return</span> <span class="tok-s">"basic"</span></code></pre>
+
+        <p>
+          The above will misroute some queries. That's fine. The graceful failure mode is "ran the cheaper mode when global would have been better" — which produces a less complete answer, not a wrong one. A small LLM classifier reads the query and produces a routing decision in ~50 tokens; the savings on routing a single question away from global pays for thousands of classifier calls.
+        </p>
+
+        <h2 id="production">10. Production concerns</h2>
+
+        <h3>Cost and latency</h3>
+
+        <p>
+          Indexing is the line item that surprises people. On a 10,000-chunk corpus with GPT-4o-class extraction, the dominant cost is extraction itself — one LLM call per chunk, with non-trivial output tokens. Add another LLM call per community at every level, plus embedding calls for entities and text units. Indexing a fresh corpus typically runs into the low thousands of dollars before any user has asked a question.
+        </p>
+
+        <p>
+          Query-time cost is concentrated in global and drift. Local and basic are cheap. Mitigations that actually move the bill:
+        </p>
+
+        <ul>
+          <li><strong>Dynamic community selection</strong> for every global query.</li>
+          <li><strong>Aggressive result caching</strong> — the same broad query is asked a lot.</li>
+          <li><strong>Routing</strong> away from global when the query doesn't need it.</li>
+        </ul>
+
+        <h3>Data freshness</h3>
+
+        <p>
+          This is the place GraphRAG hurts the most relative to vector RAG. With a vector store you can append a chunk and the next query sees it. With GraphRAG, appending a chunk gives you a few orphan entities that aren't reflected in any community report. Global search quality degrades silently — the corpus has moved, the summaries haven't.
+        </p>
+
+        <p>Three strategies, in order of cost:</p>
+
+        <ol>
+          <li><strong>Full re-index</strong> on a schedule (nightly or weekly). Highest consistency. This is the default production pattern.</li>
+          <li><strong>Incremental append.</strong> Add new docs to extraction, skip the community/summary refresh. Cheap; degrades global search over time. Useful as a stopgap between re-indexes.</li>
+          <li><strong>Hybrid re-index</strong> of touched communities only. Identify which communities the new entities landed in, re-summarize those. Saves a lot of money, requires custom tooling, and isn't yet a first-class part of the framework.</li>
+        </ol>
+
+        <div class="callout">
+          <span class="label">Production pattern</span>
+          <p>Run a nightly full re-index. For "what happened today," fall back to plain vector RAG over the day's new documents. Two retrieval paths, one consistent product surface.</p>
+        </div>
+
+        <h3>Prompt tuning is the highest-leverage knob</h3>
+
+        <p>
+          If you ship GraphRAG with the default prompts on a non-generic corpus, your output will be mediocre. The defaults are tuned for prose about people, companies, and places. Anything else — code, law, medicine, internal jargon — needs domain-specific prompts.
+        </p>
+
+        <p>
+          The three levers, in order of impact:
+        </p>
+
+        <ol>
+          <li><strong>Entity types.</strong> Replace the default <code>Geo / Person / Event / Organization</code> with the types that actually exist in your domain.</li>
+          <li><strong>Few-shot examples.</strong> Replace the generic 15-entity / 12-relationship example set with examples from your corpus.</li>
+          <li><strong>Chunk size.</strong> Default 1200; adjust based on document structure.</li>
+        </ol>
+
+        <p>The auto-tune workflow is fast and worth running before you do anything else:</p>
+
+        <pre><code><span class="tok-c"># 1. sample the corpus</span>
+graphrag sample --root ./data --limit 10
+
+<span class="tok-c"># 2. generate domain-specific persona + few-shot examples</span>
+graphrag prompt-tune --root ./data --domain <span class="tok-s">"my-domain"</span>
+
+<span class="tok-c"># 3. inspect what it produced</span>
+ls prompts/
+<span class="tok-c">#   entity_extraction.txt</span>
+<span class="tok-c">#   community_report.txt</span>
+<span class="tok-c">#   summarize_descriptions.txt</span>
+
+<span class="tok-c"># 4. index</span>
+graphrag index --root ./data</code></pre>
+
+        <h3>When to use GraphRAG vs vector RAG</h3>
+
+        <p>For most production systems: <strong>use both</strong>. Vector RAG is cheap, fast, and updates incrementally; GraphRAG is expensive and powerful. The decision criteria:</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Reach for GraphRAG when…</th><th>Stick to vector RAG when…</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Cross-document reasoning is the workload</td>
+                <td>Specific factual lookups dominate</td>
+              </tr>
+              <tr>
+                <td>Thematic synthesis is a stated requirement</td>
+                <td>Data changes by the minute</td>
+              </tr>
+              <tr>
+                <td>Domain has clean entities and relationships</td>
+                <td>Entities are highly ambiguous, no clean dedup</td>
+              </tr>
+              <tr>
+                <td>Indexing cost is acceptable for the corpus size</td>
+                <td>Cost/latency budget is tight</td>
+              </tr>
+              <tr>
+                <td>Traceable, ID-grounded citations are required</td>
+                <td>No need for cross-document synthesis</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="close">11. Mental model and closing</h2>
+
+        <div class="callout">
+          <span class="label">Vector RAG</span>
+          <p style="margin:0"><strong>"Find me the most similar chunks."</strong> Cheap to build, low latency, easy to update. Fails on questions whose answer is distributed across the corpus.</p>
+        </div>
+
+        <div class="callout">
+          <span class="label">GraphRAG</span>
+          <p style="margin:0"><strong>"Build a map of all the knowledge first, then navigate it."</strong> Expensive to build, harder to update, but synthesis is a retrieval problem instead of a hope. Pre-computed reasoning at indexing time is what makes global queries answerable at all.</p>
+        </div>
+
+        <p>
+          The tradeoff is paid upfront: extraction is the cost, community reports are the asset, and everything downstream is mechanics layered on top.
+        </p>
+
+        <p>
+          If you're starting from zero: read the <a href="https://microsoft.github.io/graphrag/" target="_blank" rel="noopener">Microsoft GraphRAG documentation</a>, run <code>prompt-tune</code> on a sample of your data before you do anything else, and don't ship the default prompts to a domain-specific corpus. Build the smallest possible graph end-to-end, look at the community reports the system produces, and iterate from there. The first reports you read will tell you more about your corpus than any retrieval eval.
+        </p>
+
+        <div class="footer">
+          <div class="footer-author">
+            <img src="images/ilhem.png" alt="Ilhem Bekkar" />
+            <div>
+              <div class="footer-author-name">
+                Ilhem Bekkar
+                <a
+                  class="byline-social"
+                  href="https://www.linkedin.com/in/ilhem-bekkar-8927a11b2/"
+                  target="_blank"
+                  rel="noopener"
+                  aria-label="LinkedIn"
+                  title="LinkedIn"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M20.45 20.45h-3.55v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.36V9h3.41v1.56h.05c.47-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0z"/>
+                  </svg>
+                </a>
+              </div>
+              <div class="footer-author-role">Agentic AI Engineer @ Omundu · Research Engineer @ LIRIS</div>
+              <div class="footer-author-blurb">
+                I build production-grade agentic systems for industry. My focus is AgentOps and the engineering lifecycle of multi-agent systems — the unglamorous plumbing that keeps agents reliable past the demo. If you want to talk graphs, agents, AgentOps, or anything in between over coffee, get in touch.
+              </div>
+            </div>
+          </div>
+          <div class="footer-thanks">
+            Thanks for reading.
+          </div>
+        </div>
+
+      </article>
+    </main>
+  </body>
+</html>

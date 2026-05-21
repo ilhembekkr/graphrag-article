@@ -1,0 +1,2734 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GraphRAG — Technical Deep Dive</title>
+    <style>
+      :root {
+        --bg-color: #ffffff;
+        --text-primary: #0f172a;
+        --text-secondary: #475569;
+        --text-muted: #94a3b8;
+        --accent-color: #2563eb;
+        --accent-light: #eff6ff;
+        --accent-dark: #1d4ed8;
+        --code-bg: #f8fafc;
+        --code-border: #e2e8f0;
+        --table-header-bg: #f1f5f9;
+        --border-color: #e2e8f0;
+        --success-color: #22c55e;
+        --success-light: #f0fdf4;
+        --danger-color: #ef4444;
+        --danger-light: #fef2f2;
+        --warning-color: #f59e0b;
+        --font-main: "Inter", system-ui, -apple-system, sans-serif;
+        --font-mono: "JetBrains Mono", "Fira Code", "Courier New", monospace;
+      }
+
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        background-color: var(--bg-color);
+        color: var(--text-primary);
+        font-family: var(--font-main);
+        overflow: hidden;
+        height: 100vh;
+        width: 100vw;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      #presentation { width: 100%; height: 100%; position: relative; }
+
+      .slide {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 40px 72px;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.4s ease-in-out, transform 0.4s ease;
+        transform: scale(0.98);
+        pointer-events: none;
+        background: var(--bg-color);
+      }
+      .slide.active {
+        opacity: 1;
+        visibility: visible;
+        transform: scale(1);
+        pointer-events: all;
+        z-index: 10;
+      }
+
+      .slide-content {
+        max-width: 1280px;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        overflow-y: auto;
+        padding: 20px 0 40px;
+      }
+      .slide-content::-webkit-scrollbar { width: 6px; }
+      .slide-content::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+
+      /* Slide eyebrow — section markers across the deck */
+      .slide-eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        color: var(--accent-color);
+        text-transform: uppercase;
+        margin-bottom: 14px;
+      }
+      .slide-eyebrow-sep { color: #cbd5e1; font-weight: 400; }
+      .slide-eyebrow-num { color: var(--text-muted); }
+
+      h1 { font-size: 3rem; font-weight: 700; color: var(--accent-color); margin-bottom: 0.5em; line-height: 1.15; }
+      h2 {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 0.6em;
+        letter-spacing: -0.01em;
+        line-height: 1.15;
+      }
+      h2.with-underline {
+        border-bottom: 2px solid var(--accent-light);
+        padding-bottom: 12px;
+      }
+      h3 { font-size: 1.5rem; font-weight: 600; color: var(--accent-color); margin: 0.9em 0 0.4em; }
+      h4 { font-size: 1.15rem; font-weight: 600; color: var(--text-primary); margin: 0.4em 0; }
+      p { font-size: 1.2rem; line-height: 1.55; color: var(--text-secondary); margin-bottom: 0.7em; }
+      li { font-size: 1.15rem; line-height: 1.55; color: var(--text-secondary); margin-bottom: 0.35em; }
+      ul, ol { margin-left: 1.5em; margin-bottom: 0.8em; }
+
+      .highlight { color: var(--accent-color); font-weight: 600; }
+      .success { color: var(--success-color); font-weight: 600; }
+      .danger { color: var(--danger-color); font-weight: 600; }
+      .warning { color: var(--warning-color); font-weight: 600; }
+      .muted { color: var(--text-muted); }
+      .mono { font-family: var(--font-mono); }
+
+      .quote-box {
+        border-left: 4px solid var(--accent-color);
+        background: var(--accent-light);
+        padding: 16px 20px;
+        margin: 16px 0;
+        border-radius: 0 8px 8px 0;
+        font-style: italic;
+        color: var(--text-primary);
+        font-size: 1.15rem;
+        line-height: 1.5;
+      }
+      .quote-box.success-quote {
+        border-color: var(--success-color);
+        background: var(--success-light);
+      }
+      .quote-box.danger-quote {
+        border-color: var(--danger-color);
+        background: var(--danger-light);
+      }
+
+      .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; width: 100%; }
+      .two-col-asym { display: grid; grid-template-columns: 1.3fr 1fr; gap: 32px; width: 100%; align-items: center; }
+      .two-col-asym.reverse { grid-template-columns: 1fr 1.3fr; }
+      .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; width: 100%; }
+      .flex-center { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+      .card {
+        background: white;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 20px 22px;
+        transition: border-color 0.2s, transform 0.2s;
+      }
+      .card-accent {
+        border-left: 4px solid var(--accent-color);
+        background: var(--accent-light);
+      }
+      .card-success {
+        border-left: 4px solid var(--success-color);
+        background: var(--success-light);
+      }
+      .card-danger {
+        border-left: 4px solid var(--danger-color);
+        background: var(--danger-light);
+      }
+      .card-title {
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+        font-size: 1.1rem;
+      }
+
+      img.notion-img {
+        max-width: 100%;
+        max-height: 55vh;
+        object-fit: contain;
+        border-radius: 8px;
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+        background: #fff;
+        margin: 12px auto;
+        display: block;
+        border: 1px solid var(--border-color);
+      }
+      img.notion-img.small { max-height: 38vh; }
+      img.notion-img.tiny { max-height: 28vh; }
+
+      .img-grid {
+        display: grid;
+        gap: 14px;
+        width: 100%;
+      }
+      .img-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+      .img-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+      .img-grid img.notion-img { max-height: 34vh; margin: 0 auto; }
+      .img-grid.cols-3 img.notion-img { max-height: 28vh; }
+
+      .img-caption {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        text-align: center;
+        margin-top: -4px;
+        margin-bottom: 8px;
+      }
+      .img-caption .fig-key {
+        color: var(--accent-color);
+        background: var(--accent-light);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-weight: 600;
+        margin-right: 6px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: 1.05rem;
+        background: white;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      th {
+        background: var(--table-header-bg);
+        color: var(--accent-color);
+        font-weight: 700;
+        padding: 14px 16px;
+        text-align: left;
+        font-size: 0.92rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      td { padding: 12px 16px; border-top: 1px solid var(--border-color); color: var(--text-secondary); }
+      tr:hover { background: #f8fafc; }
+      tr.row-recommended { background: #eff6ff; font-weight: 600; }
+      tr.row-recommended td { color: var(--text-primary); }
+
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--code-border);
+        border-left: 3px solid var(--accent-color);
+        padding: 14px 16px;
+        border-radius: 0 8px 8px 0;
+        overflow-x: auto;
+        font-family: var(--font-mono);
+        font-size: 0.95rem;
+        color: #1e293b;
+        margin: 14px 0;
+        line-height: 1.5;
+      }
+      code {
+        font-family: var(--font-mono);
+        font-size: 0.92em;
+        background: var(--code-bg);
+        padding: 1px 6px;
+        border-radius: 4px;
+        color: var(--accent-dark);
+      }
+      pre code { background: transparent; padding: 0; color: inherit; }
+
+      /* Section divider slides */
+      .section-divider .slide-content {
+        align-items: center;
+        text-align: center;
+      }
+      .section-divider .section-num {
+        font-family: var(--font-mono);
+        font-size: 5rem;
+        font-weight: 800;
+        color: var(--accent-light);
+        line-height: 1;
+        margin-bottom: 16px;
+        letter-spacing: -0.04em;
+      }
+      .section-divider h1 {
+        font-size: 3.2rem;
+        color: var(--text-primary);
+        margin-bottom: 16px;
+      }
+      .section-divider .section-sub {
+        font-family: var(--font-mono);
+        font-size: 1rem;
+        color: var(--text-muted);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      /* Controls */
+      #controls {
+        position: fixed;
+        bottom: 24px;
+        right: 32px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        z-index: 100;
+        background: rgba(255, 255, 255, 0.92);
+        padding: 8px 16px;
+        border-radius: 30px;
+        backdrop-filter: blur(8px);
+        box-shadow: 0 2px 14px rgba(15, 23, 42, 0.06);
+        border: 1px solid var(--border-color);
+      }
+      button {
+        background: var(--accent-color);
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: background 0.2s;
+        font-family: var(--font-main);
+      }
+      button:hover { background: var(--accent-dark); }
+      button:disabled { background: #94a3b8; cursor: default; }
+
+      #progress {
+        position: fixed;
+        top: 0; left: 0;
+        height: 3px;
+        background: var(--accent-color);
+        width: 0%;
+        transition: width 0.3s ease;
+        z-index: 200;
+      }
+
+      #slide-counter {
+        font-family: var(--font-mono);
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+      }
+
+      .source-ref {
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        position: fixed;
+        bottom: 28px;
+        left: 32px;
+        z-index: 90;
+        text-decoration: none;
+      }
+      .source-ref:hover { color: var(--accent-color); }
+
+      /* =============================================================
+       *  Slide 1 — Title (technical-brief redesign)
+       * ============================================================= */
+      .title-slide { padding: 60px 80px; overflow: hidden; }
+      .title-slide h1.hero-title {
+        font-size: 3.4rem;
+        font-weight: 800;
+        line-height: 1.05;
+        letter-spacing: -0.02em;
+        color: var(--text-primary);
+        margin-bottom: 24px;
+      }
+      .title-slide .hero-grid {
+        width: 100%;
+        max-width: 1300px;
+        height: 100%;
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 72px;
+        align-items: center;
+      }
+      .title-slide .hero-left {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        text-align: left;
+      }
+      .title-slide .hero-eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        color: var(--accent-color);
+        text-transform: uppercase;
+        margin-bottom: 28px;
+      }
+      .title-slide .hero-eyebrow-sep { color: #cbd5e1; font-weight: 400; }
+      .title-slide .hero-eyebrow-dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--accent-color);
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+        animation: heroDotPulse 2.4s ease-in-out infinite;
+      }
+      @keyframes heroDotPulse {
+        0%, 100% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15); }
+        50% { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0.05); }
+      }
+      .title-slide .hero-title-accent { color: var(--accent-color); }
+      .title-slide .hero-title-mono {
+        font-family: var(--font-mono);
+        font-weight: 600;
+        color: var(--accent-color);
+        font-size: 0.92em;
+        background: var(--accent-light);
+        padding: 0 10px;
+        border-radius: 6px;
+      }
+      .title-slide .hero-arrow {
+        font-family: var(--font-mono);
+        color: var(--text-secondary);
+        font-weight: 400;
+        margin: 0 4px;
+      }
+      .title-slide .hero-title-sub {
+        color: var(--text-secondary);
+        font-weight: 400;
+      }
+      .title-slide .hero-tagline {
+        font-size: 1.1rem;
+        line-height: 1.55;
+        color: var(--text-secondary);
+        max-width: 560px;
+        margin-bottom: 32px;
+      }
+      .title-slide .hero-meta {
+        font-family: var(--font-mono);
+        font-size: 0.86rem;
+        border-top: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-color);
+        padding: 16px 0;
+        margin-bottom: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-width: 620px;
+      }
+      .title-slide .hero-meta-row {
+        display: grid;
+        grid-template-columns: 110px 1fr;
+        gap: 16px;
+        align-items: baseline;
+      }
+      .title-slide .hero-meta-key { color: #94a3b8; text-transform: lowercase; }
+      .title-slide .hero-meta-key::before { content: "// "; color: #cbd5e1; }
+      .title-slide .hero-meta-val { color: var(--text-primary); }
+      .title-slide .hero-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .title-slide .hero-chip {
+        font-family: var(--font-mono);
+        font-size: 0.76rem;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: #f1f5f9;
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+      }
+      .title-slide .hero-chip-accent {
+        background: var(--accent-light);
+        color: var(--accent-color);
+        border-color: rgba(37, 99, 235, 0.25);
+        font-weight: 600;
+      }
+      .title-slide .hero-chip-ghost { background: transparent; color: var(--text-muted); }
+
+      .title-slide .hero-right {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+      }
+      .title-slide .hero-graph-frame {
+        position: relative;
+        width: 100%;
+        max-width: 480px;
+        aspect-ratio: 1 / 1;
+        background:
+          radial-gradient(circle at 30% 30%, rgba(37, 99, 235, 0.06), transparent 60%),
+          #ffffff;
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      }
+      .title-slide .hero-graph-svg { width: 100%; height: 100%; display: block; }
+      .title-slide .hero-graph-corner {
+        position: absolute;
+        width: 14px; height: 14px;
+        border: 2px solid var(--accent-color);
+      }
+      .title-slide .hero-graph-corner.tl { top: -1px; left: -1px; border-right: none; border-bottom: none; border-radius: 4px 0 0 0; }
+      .title-slide .hero-graph-corner.tr { top: -1px; right: -1px; border-left: none; border-bottom: none; border-radius: 0 4px 0 0; }
+      .title-slide .hero-graph-corner.bl { bottom: -1px; left: -1px; border-right: none; border-top: none; border-radius: 0 0 0 4px; }
+      .title-slide .hero-graph-corner.br { bottom: -1px; right: -1px; border-left: none; border-top: none; border-radius: 0 0 4px 0; }
+      .title-slide .hero-graph-caption {
+        position: absolute;
+        bottom: 14px; left: 24px; right: 24px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+      }
+      .title-slide .hero-graph-caption-key {
+        color: var(--accent-color);
+        font-weight: 600;
+        background: var(--accent-light);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .title-slide .hg-nodes circle {
+        opacity: 0;
+        animation: hgNodeIn 0.6s ease-out forwards;
+      }
+      .title-slide .hg-nodes circle:nth-child(1) { animation-delay: 0.10s; }
+      .title-slide .hg-nodes circle:nth-child(2) { animation-delay: 0.20s; }
+      .title-slide .hg-nodes circle:nth-child(3) { animation-delay: 0.30s; }
+      .title-slide .hg-nodes circle:nth-child(4) { animation-delay: 0.40s; }
+      .title-slide .hg-nodes circle:nth-child(5) { animation-delay: 0.50s; }
+      .title-slide .hg-nodes circle:nth-child(6) { animation-delay: 0.60s; }
+      .title-slide .hg-nodes circle:nth-child(7) { animation-delay: 0.70s; }
+      .title-slide .hg-nodes circle:nth-child(8) { animation-delay: 0.80s; }
+      @keyframes hgNodeIn {
+        from { opacity: 0; transform: scale(0.4); transform-origin: center; }
+        to { opacity: 1; transform: scale(1); }
+      }
+      .title-slide .hg-edges line {
+        stroke-dasharray: 200;
+        stroke-dashoffset: 200;
+        animation: hgEdgeDraw 1.4s ease-out forwards;
+        animation-delay: 0.3s;
+      }
+      @keyframes hgEdgeDraw { to { stroke-dashoffset: 0; } }
+      @media (max-width: 1100px) {
+        .title-slide .hero-grid { grid-template-columns: 1fr; gap: 32px; }
+        .title-slide .hero-right { display: none; }
+        .title-slide h1.hero-title { font-size: 2.8rem; }
+      }
+
+      /* Pipeline step strip */
+      .pipeline-strip {
+        display: flex;
+        align-items: stretch;
+        gap: 0;
+        font-family: var(--font-mono);
+        margin: 18px 0;
+        flex-wrap: wrap;
+      }
+      .pipeline-step {
+        padding: 10px 16px;
+        background: var(--accent-light);
+        border: 1px solid rgba(37, 99, 235, 0.2);
+        color: var(--accent-color);
+        font-weight: 600;
+        font-size: 0.9rem;
+        position: relative;
+        border-radius: 6px;
+        margin-right: 14px;
+        margin-bottom: 8px;
+      }
+      .pipeline-step::after {
+        content: "→";
+        position: absolute;
+        right: -16px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-muted);
+        font-weight: 400;
+      }
+      .pipeline-step:last-child::after { content: ""; }
+
+      /* Metric chips */
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 14px;
+        margin: 18px 0;
+      }
+      .metric {
+        background: white;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 14px 16px;
+      }
+      .metric-key {
+        font-family: var(--font-mono);
+        font-size: 0.74rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .metric-val {
+        font-family: var(--font-mono);
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: var(--accent-color);
+        line-height: 1.1;
+        margin-top: 4px;
+      }
+      .metric-note { font-size: 0.85rem; color: var(--text-secondary); margin-top: 2px; }
+
+      /* Slide 7 — image left, list right */
+      .slide7-split {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+        margin-top: 12px;
+      }
+      .slide7-split .slide7-img { display: flex; flex-direction: column; align-items: center; }
+      .slide7-split .slide7-img img.notion-img { margin: 0 auto 8px; max-height: 55vh; }
+      .slide7-split .slide7-list { margin: 0; padding-left: 22px; }
+      .slide7-split .slide7-list li { margin-bottom: 8px; }
+
+      /* Slide 43 — Thank-you closer */
+      .thankyou-slide .slide-content { padding: 40px 60px; }
+      .thankyou-slide .slide-eyebrow { margin-bottom: 8px; }
+      .thankyou-slide .thankyou-title {
+        font-family: var(--font-sans, system-ui, sans-serif);
+        font-size: clamp(3.5rem, 9vw, 6rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        line-height: 1;
+        margin: 0;
+        color: var(--text-primary);
+      }
+      .thankyou-slide .thankyou-title::after {
+        content: "_";
+        color: var(--accent-color);
+        animation: ty-blink 1.1s steps(2) infinite;
+      }
+      @keyframes ty-blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+      .thankyou-slide .thankyou-sub {
+        margin: 0;
+        font-family: var(--font-mono, monospace);
+        font-size: 1rem;
+        color: var(--text-secondary);
+        letter-spacing: 0.02em;
+      }
+      .thankyou-slide .thankyou-graph {
+        width: min(360px, 50vh);
+        margin-top: 6px;
+      }
+
+      /* Slide 24 — image carousel (one image visible, arrows + dots to switch) */
+      .img-carousel {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        margin: 10px auto 0;
+        max-width: 100%;
+      }
+      .carousel-track {
+        position: relative;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 38vh;
+      }
+      .carousel-track img.carousel-img {
+        display: none;
+        margin: 0 auto;
+        max-height: 44vh;
+        max-width: 100%;
+      }
+      .carousel-track img.carousel-img.is-active { display: block; }
+      .carousel-btn {
+        flex-shrink: 0;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: 1px solid var(--border-color);
+        background: #fff;
+        color: var(--text-primary);
+        font-size: 1.4rem;
+        line-height: 1;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, transform 0.15s;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+      }
+      .carousel-btn:hover:not(:disabled) { background: var(--accent-light); border-color: var(--accent-color); }
+      .carousel-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+      .carousel-dots {
+        position: absolute;
+        bottom: -22px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 8px;
+      }
+      .carousel-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        border: none;
+        background: var(--border-color);
+        cursor: pointer;
+        padding: 0;
+        transition: background 0.15s, transform 0.15s;
+      }
+      .carousel-dot:hover { background: var(--text-muted); }
+      .carousel-dot.is-active { background: var(--accent-color); transform: scale(1.25); }
+
+      /* Pipeline-at-a-glance overview SVG */
+      .pipeline-viz { width: 100%; height: auto; max-height: 62vh; display: block; margin: 8px auto 0; }
+      .pipeline-viz text { font-family: var(--font-sans, system-ui, sans-serif); }
+      .pv-band-label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; fill: var(--text-muted); font-weight: 600; }
+      .pv-band-meta { font-size: 11px; letter-spacing: 0.06em; fill: var(--text-muted); }
+      .pv-stage-title { font-size: 13px; font-weight: 600; fill: var(--text-primary); }
+      .pv-stage-cost { font-size: 11px; fill: var(--text-secondary); }
+      .pv-num { font-size: 10px; font-weight: 700; fill: #fff; }
+      .pv-artifact-title { font-size: 14px; font-weight: 700; fill: var(--text-primary); }
+      .pv-artifact-sub { font-size: 11px; fill: var(--text-secondary); font-style: italic; }
+      .pv-engine-title { font-size: 14px; font-weight: 700; fill: var(--text-primary); }
+      .pv-engine-body { font-size: 11.5px; fill: var(--text-secondary); }
+      .pv-engine-tag { font-size: 10.5px; fill: var(--text-muted); font-style: italic; }
+
+      /* Click-to-zoom lightbox for images */
+      img.notion-img { cursor: zoom-in; transition: transform 200ms ease, box-shadow 200ms ease; }
+      img.notion-img:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14); }
+      #img-lightbox {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0);
+        z-index: 1000;
+        pointer-events: none;
+        transition: background 320ms ease;
+      }
+      #img-lightbox.open { pointer-events: auto; background: rgba(15, 23, 42, 0.88); }
+      #img-lightbox .lb-img {
+        position: absolute;
+        margin: 0;
+        border-radius: 8px;
+        box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+        background: #fff;
+        cursor: zoom-out;
+        object-fit: contain;
+        transition:
+          top 420ms cubic-bezier(0.22, 1, 0.36, 1),
+          left 420ms cubic-bezier(0.22, 1, 0.36, 1),
+          width 420ms cubic-bezier(0.22, 1, 0.36, 1),
+          height 420ms cubic-bezier(0.22, 1, 0.36, 1);
+        will-change: top, left, width, height;
+      }
+      #img-lightbox .lb-hint {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: var(--font-mono, monospace);
+        font-size: 0.75rem;
+        color: rgba(255, 255, 255, 0.7);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        opacity: 0;
+        transition: opacity 320ms ease;
+        pointer-events: none;
+      }
+      #img-lightbox.open .lb-hint { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <div id="progress"></div>
+    <div id="presentation">
+
+      <!-- ============================================================
+           Slide 1 — Title (Technical brief)
+           ============================================================ -->
+      <section class="slide active title-slide" id="slide-1">
+        <div class="hero-grid">
+          <div class="hero-left">
+            <div class="hero-eyebrow">
+              <span class="hero-eyebrow-dot"></span>
+              <span>TECHNICAL BRIEF</span>
+              <span class="hero-eyebrow-sep">//</span>
+              <span>PHASE 01 / FOUNDATIONS</span>
+            </div>
+
+            <h1 class="hero-title">
+              GraphRAG<span class="hero-title-accent">.</span><br />
+              From <span class="hero-title-mono">Local</span>
+              <span class="hero-arrow">&rarr;</span>
+              <span class="hero-title-mono">Global</span><br />
+              <span class="hero-title-sub">Retrieval</span>
+            </h1>
+
+            <p class="hero-tagline">
+              An engineering deep-dive into knowledge-graph construction,
+              community detection, and map-reduce query paradigms — the
+              architecture that lets retrieval answer questions
+              traditional vector RAG cannot.
+            </p>
+
+            <div class="hero-meta">
+              <div class="hero-meta-row">
+                <span class="hero-meta-key">doc_id</span>
+                <span class="hero-meta-val">graphrag-deep-dive-01</span>
+              </div>
+              <div class="hero-meta-row">
+                <span class="hero-meta-key">basis</span>
+                <span class="hero-meta-val">Microsoft GraphRAG (open-source)</span>
+              </div>
+              <div class="hero-meta-row">
+                <span class="hero-meta-key">research</span>
+                <span class="hero-meta-val">Phase 1 — Foundations</span>
+              </div>
+              <div class="hero-meta-row">
+                <span class="hero-meta-key">pipeline</span>
+                <span class="hero-meta-val">
+                  chunk → extract → graph → community → summarize
+                </span>
+              </div>
+              <div class="hero-meta-row">
+                <span class="hero-meta-key">updated</span>
+                <span class="hero-meta-val">2026-05</span>
+              </div>
+            </div>
+
+            <div class="hero-chips">
+              <span class="hero-chip hero-chip-accent">May 2026</span>
+              <span class="hero-chip">Microsoft GraphRAG</span>
+              <span class="hero-chip">Phase 1 Foundations</span>
+              <span class="hero-chip hero-chip-ghost">v1.0 · internal</span>
+            </div>
+          </div>
+
+          <div class="hero-right" aria-hidden="true">
+            <div class="hero-graph-frame">
+              <div class="hero-graph-corner tl"></div>
+              <div class="hero-graph-corner tr"></div>
+              <div class="hero-graph-corner bl"></div>
+              <div class="hero-graph-corner br"></div>
+
+              <svg class="hero-graph-svg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                <defs>
+                  <radialGradient id="hgNode" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#2563eb" stop-opacity="0.9" />
+                    <stop offset="100%" stop-color="#2563eb" stop-opacity="0.15" />
+                  </radialGradient>
+                  <pattern id="hgGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e2e8f0" stroke-width="1" />
+                  </pattern>
+                </defs>
+                <rect width="400" height="400" fill="url(#hgGrid)" />
+                <g class="hg-edges" stroke="#2563eb" stroke-width="1.2" stroke-opacity="0.55" fill="none">
+                  <line x1="80" y1="90" x2="200" y2="60" />
+                  <line x1="200" y1="60" x2="320" y2="120" />
+                  <line x1="80" y1="90" x2="140" y2="200" />
+                  <line x1="140" y1="200" x2="200" y2="60" />
+                  <line x1="140" y1="200" x2="260" y2="220" />
+                  <line x1="260" y1="220" x2="320" y2="120" />
+                  <line x1="260" y1="220" x2="330" y2="310" />
+                  <line x1="140" y1="200" x2="90" y2="320" />
+                  <line x1="90" y1="320" x2="220" y2="340" />
+                  <line x1="220" y1="340" x2="330" y2="310" />
+                  <line x1="200" y1="60" x2="330" y2="310" stroke-dasharray="4 6" stroke-opacity="0.35" />
+                  <line x1="80" y1="90" x2="330" y2="310" stroke-dasharray="4 6" stroke-opacity="0.25" />
+                </g>
+                <g class="hg-nodes">
+                  <circle cx="80" cy="90" r="9" fill="url(#hgNode)" />
+                  <circle cx="200" cy="60" r="13" fill="url(#hgNode)" />
+                  <circle cx="320" cy="120" r="10" fill="url(#hgNode)" />
+                  <circle cx="140" cy="200" r="15" fill="url(#hgNode)" />
+                  <circle cx="260" cy="220" r="11" fill="url(#hgNode)" />
+                  <circle cx="90" cy="320" r="8" fill="url(#hgNode)" />
+                  <circle cx="220" cy="340" r="12" fill="url(#hgNode)" />
+                  <circle cx="330" cy="310" r="9" fill="url(#hgNode)" />
+                </g>
+                <circle cx="140" cy="200" r="15" fill="none" stroke="#2563eb" stroke-width="1.5">
+                  <animate attributeName="r" from="15" to="44" dur="3.4s" repeatCount="indefinite" />
+                  <animate attributeName="stroke-opacity" from="0.55" to="0" dur="3.4s" repeatCount="indefinite" />
+                </circle>
+                <circle cx="260" cy="220" r="11" fill="none" stroke="#2563eb" stroke-width="1.5">
+                  <animate attributeName="r" from="11" to="38" dur="3.4s" begin="1.2s" repeatCount="indefinite" />
+                  <animate attributeName="stroke-opacity" from="0.55" to="0" dur="3.4s" begin="1.2s" repeatCount="indefinite" />
+                </circle>
+                <g font-family="'JetBrains Mono', monospace" font-size="9" fill="#475569">
+                  <text x="148" y="196">community_0</text>
+                  <text x="268" y="216">community_1</text>
+                  <text x="208" y="56">entity</text>
+                </g>
+              </svg>
+
+              <div class="hero-graph-caption">
+                <span class="hero-graph-caption-key">fig.01</span>
+                <span>knowledge graph · 2 communities · 8 entities</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 2 — Agenda
+           ============================================================ -->
+      <section class="slide" id="slide-2">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>AGENDA</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">02 / 43</span>
+          </div>
+          <h2>What we will cover</h2>
+          <div class="two-col" style="margin-top: 8px">
+            <div>
+              <div class="card card-accent" style="margin-bottom: 12px">
+                <div class="card-title">§1 · The problem</div>
+                <p style="font-size: 1rem; margin: 0">Why traditional RAG fails on global queries.</p>
+              </div>
+              <div class="card card-accent" style="margin-bottom: 12px">
+                <div class="card-title">§2 · Indexing pipeline</div>
+                <p style="font-size: 1rem; margin: 0">Chunking → extraction → graph → community detection → summaries.</p>
+              </div>
+              <div class="card card-accent">
+                <div class="card-title">§3 · The knowledge graph</div>
+                <p style="font-size: 1rem; margin: 0">Entities, relationships, communities, parquet output tables.</p>
+              </div>
+            </div>
+            <div>
+              <div class="card card-accent" style="margin-bottom: 12px">
+                <div class="card-title">§4 · Query modes</div>
+                <p style="font-size: 1rem; margin: 0">Local (graph traversal), Global (map-reduce), DRIFT, Basic.</p>
+              </div>
+              <div class="card card-accent" style="margin-bottom: 12px">
+                <div class="card-title">§5 · Community reports</div>
+                <p style="font-size: 1rem; margin: 0">The pre-computed reasoning layer that powers global search.</p>
+              </div>
+              <div class="card card-accent">
+                <div class="card-title">§6 · Production concerns</div>
+                <p style="font-size: 1rem; margin: 0">Cost, latency, freshness, prompt tuning, agentic routing.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 1 — The problem
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-3">
+        <div class="slide-content">
+          <div class="section-num">§1</div>
+          <h1>The Problem Space</h1>
+          <div class="section-sub">Why traditional RAG falls apart on global questions</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 4 — Traditional RAG strengths/limits
+           ============================================================ -->
+      <section class="slide" id="slide-4">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§1 · THE PROBLEM</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">04 / 43</span>
+          </div>
+          <h2 class="with-underline">Traditional RAG: what it is, and what it cannot do</h2>
+          <p>
+            Traditional RAG chunks documents, embeds them as vectors, and at query time
+            retrieves the most similar chunks to feed the LLM. The mechanism is
+            <span class="mono highlight">chunk → embed → vector search → LLM</span>.
+          </p>
+          <div class="two-col" style="margin-top: 14px">
+            <div class="card card-success">
+              <div class="card-title success">✓ Works well for</div>
+              <ul style="margin-bottom: 0">
+                <li>Specific, localized factual questions</li>
+                <li><em>"What is the refund policy?"</em></li>
+                <li><em>"How do I configure the auth module?"</em></li>
+                <li>The answer lives in one or a few chunks</li>
+                <li>Fast indexing, low latency, cheap to operate</li>
+              </ul>
+            </div>
+            <div class="card card-danger">
+              <div class="card-title danger">✗ Falls apart on</div>
+              <ul style="margin-bottom: 0">
+                <li>Cross-document reasoning</li>
+                <li><em>"What are the major themes across all reports?"</em></li>
+                <li><em>"Summarize the key risks across all projects."</em></li>
+                <li>Answer is <strong>distributed</strong>, retrieval is pointwise</li>
+                <li>Vector similarity is a <strong>local</strong> operation</li>
+              </ul>
+            </div>
+          </div>
+          <div class="quote-box" style="margin-top: 18px">
+            The fundamental limitation: vector search finds what is <em>nearby</em> in embedding space,
+            not what is <em>important</em> globally.
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 5 — Global question failure (with image)
+           ============================================================ -->
+      <section class="slide" id="slide-5">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§1 · THE PROBLEM</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">05 / 43</span>
+          </div>
+          <h2 class="with-underline">The "global question" failure mode</h2>
+          <div class="two-col-asym">
+            <div>
+              <h3 style="margin-top: 0">Query</h3>
+              <pre>"What are the recurring risks across<br/>all 200 project reports?"</pre>
+              <h3>Why vector RAG fails</h3>
+              <ul>
+                <li><span class="danger">✗</span> No mechanism to aggregate signals across the corpus</li>
+                <li><span class="danger">✗</span> No pre-computed understanding of document clusters</li>
+                <li><span class="danger">✗</span> Top-k retrieval returns a fragmented sample, not a synthesis</li>
+                <li><span class="danger">✗</span> The LLM ends up synthesizing from locally-relevant scraps</li>
+              </ul>
+              <div class="quote-box danger-quote">
+                Vector search finds a handful of individually relevant chunks,
+                but has no way to synthesize the big picture.
+              </div>
+            </div>
+            <div>
+              <img src="images/main-1.png" alt="Vector RAG fragmented retrieval" class="notion-img" />
+              <div class="img-caption"><span class="fig-key">fig.02</span> fragmented retrieval — answer scattered across the corpus</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 2 — Architecture
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-6">
+        <div class="slide-content">
+          <div class="section-num">§2</div>
+          <h1>The GraphRAG Pipeline</h1>
+          <div class="section-sub">Build a knowledge graph first · then summarize it</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 7 — Pipeline overview
+           ============================================================ -->
+      <section class="slide" id="slide-7">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§2 · ARCHITECTURE</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">07 / 43</span>
+          </div>
+          <h2 class="with-underline">Four innovations that make GraphRAG different</h2>
+          <p style="margin: 4px 0 8px; color: var(--text-secondary); font-size: 0.95rem;">
+            GraphRAG-style systems share four core innovations — Microsoft's implementation is the reference design we'll use throughout.
+          </p>
+          <div class="pipeline-strip">
+            <span class="pipeline-step">Extract entities + rels</span>
+            <span class="pipeline-step">Build graph</span>
+            <span class="pipeline-step">Detect communities</span>
+            <span class="pipeline-step">Summarize communities</span>
+          </div>
+          <div class="slide7-split">
+            <div class="slide7-img">
+              <img src="images/main-2.png" alt="GraphRAG end-to-end pipeline" class="notion-img" />
+              <div class="img-caption"><span class="fig-key">fig.03</span> documents → chunks → entities &amp; rels → graph → communities → reports → query</div>
+            </div>
+            <ol class="slide7-list">
+              <li>
+                <strong>Entity & Relationship Extraction.</strong>
+                An LLM reads each chunk and extracts entities (with type + description) and relationships
+                (with description + strength score). Single LLM call per chunk.
+              </li>
+              <li>
+                <strong>Knowledge Graph Construction.</strong>
+                Entities become nodes, relationships become edges with aggregated weights.
+                Duplicates are merged across chunks by exact string match.
+              </li>
+              <li>
+                <strong>Community Detection.</strong>
+                The <span class="mono highlight">Hierarchical Leiden algorithm</span> partitions the graph into clusters
+                of densely-connected nodes at multiple granularity levels (0 → 2+).
+              </li>
+              <li>
+                <strong>Community Summarization ⭐.</strong>
+                An LLM generates a structured report for each community at each level.
+                These are pre-computed "big-picture" views — the key innovation.
+              </li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 8 — Two query modes (teaser before deep dives in §6/§7/§9)
+           ============================================================ -->
+      <section class="slide" id="slide-8a">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§2 · ARCHITECTURE</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">08 / 43</span>
+          </div>
+          <h2 class="with-underline">Two ways to query the graph</h2>
+          <p style="margin: 4px 0 14px; color: var(--text-secondary);">
+            The graph + community summaries give you two complementary retrieval modes.
+          </p>
+          <div class="two-col">
+            <div class="card">
+              <div class="card-title">Local search · the smart RAG</div>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li>Embedding similarity → seed entities</li>
+                <li>Traverse the entity neighborhood in the graph</li>
+                <li>Pull entity descriptions, edge descriptions, connected chunks, <em>and</em> the community report</li>
+                <li>Build a rich, structured context window</li>
+              </ul>
+              <div style="margin-top: 10px; font-size: 0.9rem; color: var(--text-muted);">
+                good for → <span class="mono">"what does module X depend on?"</span>
+              </div>
+            </div>
+            <div class="card card-accent">
+              <div class="card-title">Global search · the game-changer</div>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li><strong>Map</strong>: fan the query out to every community summary</li>
+                <li>Extract relevant points from each in parallel</li>
+                <li><strong>Reduce</strong>: aggregate into one coherent answer</li>
+                <li>Leverages pre-computed "big-picture" views</li>
+              </ul>
+              <div style="margin-top: 10px; font-size: 0.9rem; color: var(--text-muted);">
+                good for → <span class="mono">"what themes recur across 200 reports?"</span>
+              </div>
+            </div>
+          </div>
+          <div class="quote-box">
+            Local = graph walk. Global = map-reduce over pre-computed summaries.
+            Traditional RAG simply cannot do the second.
+          </div>
+          <div class="muted" style="font-size: 0.85rem; margin-top: 4px;">
+            Deep dives in §6 (Local), §7 (Global), §9 (when to use each).
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 9 — Tradeoffs & the agentic pattern
+           ============================================================ -->
+      <section class="slide" id="slide-8b">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§2 · ARCHITECTURE</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">09 / 43</span>
+          </div>
+          <h2 class="with-underline">It's not a free upgrade — pick the right tool</h2>
+          <table style="margin-top: 8px;">
+            <thead>
+              <tr>
+                <th>Dimension</th>
+                <th>Traditional RAG</th>
+                <th>GraphRAG</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Retrieval method</strong></td>
+                <td>Vector similarity (nearest chunks)</td>
+                <td>Graph traversal (local) + community summaries (global)</td>
+              </tr>
+              <tr>
+                <td><strong>Good at</strong></td>
+                <td>Specific, localized factual questions</td>
+                <td>Both specific <em>and</em> broad thematic synthesis</td>
+              </tr>
+              <tr>
+                <td><strong>Fails at</strong></td>
+                <td><span class="danger">Cross-document reasoning, themes, aggregation</span></td>
+                <td>Nothing fundamental — has cost/latency tradeoffs</td>
+              </tr>
+              <tr>
+                <td><strong>Indexing cost</strong></td>
+                <td>Low (just embed chunks)</td>
+                <td><span class="warning">High</span> — LLM call per chunk + summarization passes</td>
+              </tr>
+              <tr>
+                <td><strong>Query latency</strong></td>
+                <td>Fast (single retrieval + LLM call)</td>
+                <td>Local: similar · <span class="warning">Global: slower</span> (map-reduce)</td>
+              </tr>
+              <tr>
+                <td><strong>Data freshness</strong></td>
+                <td>Easy to add new chunks</td>
+                <td><span class="warning">Requires re-indexing</span> when data changes</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="quote-box success-quote">
+            The pattern for agentic AI: <strong>use both</strong>.
+            Vector RAG for simple lookups, GraphRAG for cross-document reasoning.
+            Your agent picks based on query type.
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 10 — The full pipeline at a glance (custom SVG)
+           ============================================================ -->
+      <section class="slide" id="slide-9c">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§2 · ARCHITECTURE</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">10 / 43</span>
+          </div>
+          <h2 class="with-underline">The full pipeline at a glance</h2>
+          <p style="margin: 4px 0 6px; color: var(--text-secondary);">
+            Six build-time stages produce the graph + summaries · two runtime engines consume them.
+          </p>
+          <svg class="pipeline-viz" viewBox="0 0 1100 560" xmlns="http://www.w3.org/2000/svg" aria-label="GraphRAG pipeline overview: build-time indexing and query-time engines">
+            <defs>
+              <marker id="pv-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+              </marker>
+              <filter id="pv-shadow" x="-10%" y="-10%" width="120%" height="120%">
+                <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.08"/>
+              </filter>
+            </defs>
+
+            <!-- BAND 1: BUILD TIME -->
+            <text x="12" y="16" class="pv-band-label">§ Build time · indexing</text>
+            <text x="1088" y="16" class="pv-band-meta" text-anchor="end">run once · expensive</text>
+
+            <g filter="url(#pv-shadow)">
+              <rect x="30" y="40" width="145" height="70" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2"/>
+              <circle cx="46" cy="56" r="11" fill="#64748b"/>
+              <text x="46" y="60" text-anchor="middle" class="pv-num">1</text>
+              <text x="102" y="78" text-anchor="middle" class="pv-stage-title">Chunk</text>
+              <text x="102" y="96" text-anchor="middle" class="pv-stage-cost">token splits</text>
+            </g>
+            <text x="102" y="132" text-anchor="middle" class="pv-stage-cost" style="fill: var(--text-muted);">CPU · 0%</text>
+
+            <g filter="url(#pv-shadow)">
+              <rect x="192" y="40" width="145" height="70" rx="10" fill="var(--accent-light)" stroke="var(--accent-color)" stroke-width="1.2"/>
+              <circle cx="208" cy="56" r="11" fill="var(--accent-color)"/>
+              <text x="208" y="60" text-anchor="middle" class="pv-num">2</text>
+              <text x="264" y="78" text-anchor="middle" class="pv-stage-title">Extract</text>
+              <text x="264" y="96" text-anchor="middle" class="pv-stage-cost">entities + rels</text>
+            </g>
+            <text x="264" y="132" text-anchor="middle" class="pv-stage-cost" style="fill: var(--accent-color); font-weight: 600;">LLM · ~75%</text>
+
+            <g filter="url(#pv-shadow)">
+              <rect x="354" y="40" width="145" height="70" rx="10" fill="var(--accent-light)" stroke="var(--accent-color)" stroke-width="1.2"/>
+              <circle cx="370" cy="56" r="11" fill="var(--accent-color)"/>
+              <text x="370" y="60" text-anchor="middle" class="pv-num">3</text>
+              <text x="426" y="78" text-anchor="middle" class="pv-stage-title">Dedupe</text>
+              <text x="426" y="96" text-anchor="middle" class="pv-stage-cost">merge descriptions</text>
+            </g>
+            <text x="426" y="132" text-anchor="middle" class="pv-stage-cost" style="fill: var(--accent-color); font-weight: 600;">LLM · ~10%</text>
+
+            <g filter="url(#pv-shadow)">
+              <rect x="516" y="40" width="145" height="70" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2"/>
+              <circle cx="532" cy="56" r="11" fill="#64748b"/>
+              <text x="532" y="60" text-anchor="middle" class="pv-num">4</text>
+              <text x="588" y="78" text-anchor="middle" class="pv-stage-title">Detect</text>
+              <text x="588" y="96" text-anchor="middle" class="pv-stage-cost">hierarchical clusters</text>
+            </g>
+            <text x="588" y="132" text-anchor="middle" class="pv-stage-cost" style="fill: var(--text-muted);">CPU · 0%</text>
+
+            <g filter="url(#pv-shadow)">
+              <rect x="678" y="40" width="145" height="70" rx="10" fill="var(--accent-light)" stroke="var(--accent-color)" stroke-width="1.2"/>
+              <circle cx="694" cy="56" r="11" fill="var(--accent-color)"/>
+              <text x="694" y="60" text-anchor="middle" class="pv-num">5</text>
+              <text x="750" y="78" text-anchor="middle" class="pv-stage-title">Report</text>
+              <text x="750" y="96" text-anchor="middle" class="pv-stage-cost">community summaries</text>
+            </g>
+            <text x="750" y="132" text-anchor="middle" class="pv-stage-cost" style="fill: var(--accent-color); font-weight: 600;">LLM · ~10%</text>
+
+            <g filter="url(#pv-shadow)">
+              <rect x="840" y="40" width="145" height="70" rx="10" fill="var(--success-light)" stroke="var(--success-color)" stroke-width="1.2"/>
+              <circle cx="856" cy="56" r="11" fill="var(--success-color)"/>
+              <text x="856" y="60" text-anchor="middle" class="pv-num">6</text>
+              <text x="912" y="78" text-anchor="middle" class="pv-stage-title">Embed</text>
+              <text x="912" y="96" text-anchor="middle" class="pv-stage-cost">vectors for search</text>
+            </g>
+            <text x="912" y="132" text-anchor="middle" class="pv-stage-cost" style="fill: var(--success-color); font-weight: 600;">Vec · ~5%</text>
+
+            <line x1="175" y1="75" x2="190" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#pv-arrow)"/>
+            <line x1="337" y1="75" x2="352" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#pv-arrow)"/>
+            <line x1="499" y1="75" x2="514" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#pv-arrow)"/>
+            <line x1="661" y1="75" x2="676" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#pv-arrow)"/>
+            <line x1="823" y1="75" x2="838" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#pv-arrow)"/>
+
+            <line x1="550" y1="160" x2="550" y2="208" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#pv-arrow)"/>
+
+            <!-- BAND 2: ARTIFACT -->
+            <g filter="url(#pv-shadow)">
+              <rect x="270" y="218" width="560" height="92" rx="12" fill="#fff" stroke="var(--accent-color)" stroke-width="1.5" stroke-dasharray="6 4"/>
+              <text x="550" y="250" text-anchor="middle" class="pv-artifact-title">Knowledge graph &#43; community reports &#43; embeddings</text>
+              <text x="550" y="274" text-anchor="middle" class="pv-artifact-sub">persisted to parquet / vector store · read at query time</text>
+              <text x="550" y="296" text-anchor="middle" class="pv-stage-cost" style="fill: var(--text-muted);">entities · relationships · communities · reports · text-unit embeddings</text>
+            </g>
+
+            <line x1="550" y1="318" x2="550" y2="362" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#pv-arrow)"/>
+
+            <!-- BAND 3: QUERY TIME -->
+            <text x="12" y="358" class="pv-band-label">§ Query time · two engines</text>
+            <text x="1088" y="358" class="pv-band-meta" text-anchor="end">per query · cheap</text>
+
+            <g filter="url(#pv-shadow)">
+              <rect x="30" y="438" width="140" height="44" rx="22" fill="#fff" stroke="#94a3b8" stroke-width="1.2"/>
+              <text x="100" y="465" text-anchor="middle" class="pv-stage-title">user query</text>
+            </g>
+
+            <path d="M 170 460 C 200 460, 200 415, 230 415" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#pv-arrow)"/>
+            <path d="M 170 460 C 200 460, 200 505, 230 505" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#pv-arrow)"/>
+
+            <g filter="url(#pv-shadow)">
+              <rect x="240" y="380" width="850" height="72" rx="10" fill="#fff" stroke="#cbd5e1" stroke-width="1.2"/>
+              <text x="260" y="408" class="pv-engine-title">Local · graph walk</text>
+              <text x="260" y="430" class="pv-engine-body">seed entities (embed sim) → fan out to neighborhood → pack entities + rels + chunks + reports → LLM</text>
+              <text x="260" y="446" class="pv-engine-tag">good for: specific facts · "what does module X depend on?"</text>
+            </g>
+
+            <g filter="url(#pv-shadow)">
+              <rect x="240" y="468" width="850" height="72" rx="10" fill="var(--accent-light)" stroke="var(--accent-color)" stroke-width="1.5"/>
+              <text x="260" y="496" class="pv-engine-title">Global · map-reduce</text>
+              <text x="260" y="518" class="pv-engine-body">shuffle community reports → map: LLM extracts key points in parallel → reduce: LLM aggregates → answer</text>
+              <text x="260" y="534" class="pv-engine-tag">good for: themes &amp; synthesis · "recurring risks across 200 reports?"</text>
+            </g>
+          </svg>
+          <div class="muted" style="font-size: 0.82rem; margin-top: 6px; text-align: center;">
+            Detail in §3–§5 (build) · §6–§7 (query).
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 3 — Indexing: chunking
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-9">
+        <div class="slide-content">
+          <div class="section-num">§3</div>
+          <h1>Indexing · Chunking</h1>
+          <div class="section-sub">Token-based fixed-size with overlap</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 10 — Chunking strategy
+           ============================================================ -->
+      <section class="slide" id="slide-10">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§3 · CHUNKING</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">12 / 43</span>
+          </div>
+          <h2 class="with-underline">Token-based fixed-size chunking</h2>
+          <div class="two-col-asym">
+            <div>
+              <p>
+                In traditional RAG, chunk size affects retrieval precision. In GraphRAG, chunk size directly
+                controls <span class="highlight">entity extraction quality</span> — and that cascades through the
+                entire pipeline (graph, communities, summaries, query quality).
+              </p>
+              <pre># Microsoft GraphRAG's settings.yaml — chunking defaults
+# (any GraphRAG faces the same tokens/overlap decision)
+chunks:
+  size: 1200              # tokens per chunk
+  overlap: 100            # shared tokens between adjacent chunks
+  group_by_columns: [id]  # do not cross document boundaries
+  prepend_metadata: true  # prefix each chunk with doc title/tags
+                          # (metadata text NOT counted in size)</pre>
+              <p style="font-size: 1rem">
+                <strong>Bring your own chunks:</strong> if you already have a semantic chunker,
+                feed GraphRAG one short file per chunk — its chunking step is then effectively bypassed.
+              </p>
+            </div>
+            <div>
+              <img src="images/chunks-1.png" alt="Chunking strategy diagram" class="notion-img small" />
+              <div class="img-caption"><span class="fig-key">fig.04</span> fixed-size chunking with overlap</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 11 — Chunk size tradeoffs
+           ============================================================ -->
+      <section class="slide" id="slide-11">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§3 · CHUNKING</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">13 / 43</span>
+          </div>
+          <h2 class="with-underline">Chunk size · the central tradeoff</h2>
+          <p style="margin: 4px 0 8px; color: var(--text-secondary); font-size: 0.95rem;">
+            Every GraphRAG faces this tradeoff. Microsoft's defaults (✓) below — yours may differ.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Size</th>
+                <th>Entity quality</th>
+                <th>Cost</th>
+                <th>Speed</th>
+                <th>Best for</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>300 tok</code> <span class="muted">(old default)</span></td>
+                <td>High precision, may miss cross-paragraph relations</td>
+                <td class="danger">Very high</td>
+                <td>Slow</td>
+                <td>Fine-grained provenance</td>
+              </tr>
+              <tr class="row-recommended">
+                <td><code>1200 tok</code> ✓</td>
+                <td>Catches cross-paragraph context, good balance</td>
+                <td>Moderate</td>
+                <td>Faster</td>
+                <td><strong>General purpose (current default)</strong></td>
+              </tr>
+              <tr>
+                <td><code>2000+ tok</code></td>
+                <td>May lose fine-grained entities</td>
+                <td class="success">Low</td>
+                <td>Fastest</td>
+                <td>Cost-sensitive analysis</td>
+              </tr>
+            </tbody>
+          </table>
+          <p style="margin-top: 12px; font-size: 1.05rem">
+            <strong>Order-of-magnitude:</strong> for a 26,000-word document, dropping from 300 → 1200 token chunks
+            cuts extraction calls from ~260 to ~26 — a <span class="highlight">10× cost reduction</span>.
+          </p>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 4 — Extraction
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-12">
+        <div class="slide-content">
+          <div class="section-num">§4</div>
+          <h1>Entity &amp; Relationship Extraction</h1>
+          <div class="section-sub">The heart of GraphRAG — quality here cascades everywhere</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 13 — Extraction process
+           ============================================================ -->
+      <section class="slide" id="slide-13">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§4 · EXTRACTION</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">15 / 43</span>
+          </div>
+          <h2 class="with-underline">One LLM call per chunk → structured tuples</h2>
+          <div class="two-col-asym">
+            <div>
+              <p>
+                A single LLM call per chunk asks the model to (1) identify all entities with a name, type, and description,
+                then (2) identify all pairs of clearly-related entities and emit a relationship description plus a
+                numeric strength score.
+              </p>
+              <h4 style="margin-top: 12px">Output format · entity tuple</h4>
+              <pre>("entity" | ENTITY_NAME | ENTITY_TYPE | "description")</pre>
+              <h4>Output format · relationship tuple</h4>
+              <pre>("relationship" | SOURCE | TARGET | "why related" | STRENGTH)</pre>
+              <p style="font-size: 1rem; margin-top: 10px">
+                The <code>STRENGTH</code> score is later aggregated — the edge <code>weight</code> column in the
+                final relationship table is the <strong>sum of LLM-assigned strengths</strong>, not a co-occurrence count.
+              </p>
+            </div>
+            <div>
+              <img src="images/extract-1.png" alt="Extraction pipeline" class="notion-img" />
+              <div class="img-caption"><span class="fig-key">fig.05</span> entity &amp; relationship extraction</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 14 — Extraction prompt anatomy
+           ============================================================ -->
+      <section class="slide" id="slide-14">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§4 · EXTRACTION</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">16 / 43</span>
+          </div>
+          <h2 class="with-underline">Four parts of the extraction prompt</h2>
+          <p style="margin: 4px 0 8px; color: var(--text-secondary); font-size: 0.95rem;">
+            Microsoft's prompt template — the same anatomy applies to any LLM-based extractor.
+          </p>
+          <div class="two-col">
+            <div>
+              <ol>
+                <li><strong>Extraction instructions</strong> — guides the LLM on <em>how</em> to extract and which types to look for.</li>
+                <li><strong>Few-shot examples</strong> — defaults: <span class="mono">15 entities, 12 relationships</span>, restricted to <em>organization, geography, person</em>.</li>
+                <li><strong>Text chunk</strong> — placeholder for the content to process.</li>
+                <li><strong>Gleanings</strong> — multi-turn loop that encourages the LLM to extract items it missed on the first pass.</li>
+              </ol>
+              <div class="quote-box danger-quote">
+                ⚠️ The default few-shot examples are <em>extremely generic</em>.
+                For software, legal, or scientific corpora, they will miss most of what matters.
+              </div>
+            </div>
+            <div>
+              <h3 style="margin-top: 0">Default entity types</h3>
+              <div class="metric-grid" style="grid-template-columns: 1fr 1fr">
+                <div class="metric"><div class="metric-key">type 1</div><div class="metric-val" style="font-size: 1.2rem">Geo</div></div>
+                <div class="metric"><div class="metric-key">type 2</div><div class="metric-val" style="font-size: 1.2rem">Person</div></div>
+                <div class="metric"><div class="metric-key">type 3</div><div class="metric-val" style="font-size: 1.2rem">Event</div></div>
+                <div class="metric"><div class="metric-key">type 4</div><div class="metric-val" style="font-size: 1.2rem">Organization</div></div>
+              </div>
+              <h4>Custom types for an agentic AI codebase</h4>
+              <p class="mono" style="font-size: 0.95rem; background: var(--code-bg); padding: 10px; border-radius: 6px">
+                Function · Module · API · DataSource ·<br/>Agent · Tool · Prompt · Risk
+              </p>
+              <h4>Auto-tune to your domain</h4>
+              <pre>graphrag prompt-tune \
+  --root ./data --domain "your-domain"</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 15 — Deduplication & summarization
+           ============================================================ -->
+      <section class="slide" id="slide-15">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§4 · EXTRACTION</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">17 / 43</span>
+          </div>
+          <h2 class="with-underline">Deduplication &amp; entity summarization</h2>
+          <div class="two-col-asym reverse">
+            <div>
+              <h3 style="margin-top: 0">The problem</h3>
+              <p>
+                The same entity is extracted from many chunks, each time with a slightly different description.
+                A canonical example from the docs: the entity "Jon" was extracted <span class="highlight">82 times</span>
+                across different text units in the same novel.
+              </p>
+              <h3>The mechanism</h3>
+              <ol>
+                <li>Group all instances of an entity by <strong>exact string match</strong> on <code>(name, type)</code>.</li>
+                <li>Prompt the LLM to combine the descriptions into a <strong>single consolidated summary</strong>.</li>
+                <li>Same procedure applied to relationships between the same entity pair.</li>
+              </ol>
+            </div>
+            <div>
+              <div class="card card-danger">
+                <div class="card-title danger">⚠ Known limitation</div>
+                <p style="margin-bottom: 6px">No entity disambiguation.</p>
+                <p class="mono" style="font-size: 0.95rem; background: white; padding: 10px; border-radius: 6px; margin-bottom: 6px">
+                  "Jon" ≠ "Jon Márquez" → two nodes
+                </p>
+                <p style="font-size: 0.95rem; margin: 0">
+                  Exact-match deduplication keeps these separate even when they refer to the same person.
+                </p>
+              </div>
+              <div class="card card-accent" style="margin-top: 12px">
+                <div class="card-title">Mitigation</div>
+                <p style="font-size: 0.95rem; margin: 0">
+                  Customize entity types and tune few-shot examples to reduce ambiguity at the source.
+                  Post-process with a coreference resolver if needed.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 16 — Standard vs Fast indexing
+           ============================================================ -->
+      <section class="slide" id="slide-16">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§4 · EXTRACTION</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">18 / 43</span>
+          </div>
+          <h2 class="with-underline">LLM-quality vs cheap NLP extraction</h2>
+          <p style="margin: 4px 0 8px; color: var(--text-secondary); font-size: 0.95rem;">
+            Microsoft ships this as two indexing modes — Standard (LLM) and Fast (NLP).
+          </p>
+          <div class="two-col-asym">
+            <div>
+              <table>
+                <thead>
+                  <tr><th>Aspect</th><th>Standard (LLM)</th><th>Fast (NLTK / spaCy)</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Extraction</td>
+                    <td>LLM call, rich descriptions</td>
+                    <td>Noun phrases, no LLM</td>
+                  </tr>
+                  <tr>
+                    <td>Relationships</td>
+                    <td>Described + weighted</td>
+                    <td>Co-occurrence only</td>
+                  </tr>
+                  <tr>
+                    <td>Chunk size</td>
+                    <td>1200 tok</td>
+                    <td>50–100 tok</td>
+                  </tr>
+                  <tr>
+                    <td>Cost</td>
+                    <td class="danger">High</td>
+                    <td class="success">Very low</td>
+                  </tr>
+                  <tr>
+                    <td>Community summaries</td>
+                    <td class="success">Rich, contextual</td>
+                    <td class="danger">Sparse, limited reasoning</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p style="font-size: 1rem"><em>
+                Fast indexing loses the rich descriptions that power community summaries —
+                you trade quality for cost.
+              </em></p>
+            </div>
+            <div>
+              <img src="images/extract-2.png" alt="Standard vs fast indexing" class="notion-img small" />
+              <div class="img-caption"><span class="fig-key">fig.06</span> standard vs fast indexing</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 5 — Knowledge graph
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-17">
+        <div class="slide-content">
+          <div class="section-num">§5</div>
+          <h1>The Knowledge Graph</h1>
+          <div class="section-sub">Two layers — graph network + parquet output tables</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 18 — Graph structure (with image)
+           ============================================================ -->
+      <section class="slide" id="slide-18">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§5 · GRAPH</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">20 / 43</span>
+          </div>
+          <h2 class="with-underline">Graph layer · entities and weighted edges</h2>
+          <div class="two-col-asym">
+            <div>
+              <ul>
+                <li><strong>Nodes:</strong> entities with rich text descriptions (not just labels).</li>
+                <li><strong>Node size ∝ degree:</strong> highly-connected hubs (e.g. "Acme Corp") emerge visually.</li>
+                <li><strong>Edges:</strong> relationships with descriptions + aggregated <code>weight</code> = sum of LLM strengths.</li>
+                <li><strong>Edge thickness ∝ weight</strong>.</li>
+                <li><strong>Dashed edges:</strong> cross-community connections — bridges between clusters.</li>
+                <li><strong>Optional covariates:</strong> time-bound claims attached to entities.</li>
+              </ul>
+              <div class="quote-box">
+                The knowledge model is far richer than a simple co-occurrence network — every node and edge
+                carries an LLM-generated description that downstream stages can reason over.
+              </div>
+            </div>
+            <div>
+              <img src="images/graph-1.png" alt="Entity graph visualization" class="notion-img" />
+              <div class="img-caption"><span class="fig-key">fig.07</span> entity graph · node size = degree, edge width = weight</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 19 — Community hierarchy
+           ============================================================ -->
+      <section class="slide" id="slide-19">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§5 · GRAPH</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">21 / 43</span>
+          </div>
+          <h2 class="with-underline">Hierarchical Leiden · multi-level communities</h2>
+          <div class="two-col-asym reverse">
+            <div>
+              <p>
+                GraphRAG implementations cluster the entity graph — Microsoft (and most others) use the
+                <span class="mono highlight">Hierarchical Leiden algorithm</span>, which applies recursive community-clustering until a
+                community-size threshold is reached, producing a hierarchy of partitions.
+              </p>
+              <table>
+                <thead><tr><th>Level</th><th>Granularity</th><th>~ # comms</th><th>Use</th></tr></thead>
+                <tbody>
+                  <tr><td><code>0</code></td><td>Coarsest</td><td>5–15</td><td>Broad themes, cheap global search</td></tr>
+                  <tr><td><code>1</code></td><td>Medium</td><td>50–100</td><td>Balanced detail vs cost</td></tr>
+                  <tr><td><code>2+</code></td><td>Finest</td><td>100s–1000s</td><td>Detailed analysis</td></tr>
+                </tbody>
+              </table>
+              <p style="font-size: 1rem">
+                <strong>Invariant:</strong> within a level, communities are <em>non-overlapping</em> — every entity belongs
+                to exactly one. Higher-level communities <em>contain</em> their lower-level children.
+              </p>
+            </div>
+            <div>
+              <img src="images/graph-2.png" alt="Community hierarchy" class="notion-img" />
+              <div class="img-caption"><span class="fig-key">fig.08</span> hierarchical community partitioning</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 20 — Output tables (parquet)
+           ============================================================ -->
+      <section class="slide" id="slide-20">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§5 · GRAPH</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">22 / 43</span>
+          </div>
+          <h2 class="with-underline">Data layer · the materialized graph</h2>
+          <div class="two-col-asym">
+            <div>
+              <p>
+                Microsoft GraphRAG materializes the graph as <span class="mono highlight">parquet files on disk</span>
+                — one table per concept, with foreign-key cross-references for full provenance. Other implementations may use a graph DB,
+                vector store, or relational tables instead.
+              </p>
+              <pre>documents
+   ↓
+text_units             # chunked text + offsets
+   ↓
+entities               # name, type, description, embedding
+relationships          # source, target, description, weight
+   ↓
+communities            # parent_id, level, entity_ids[]
+community_reports      # title, summary, rating, findings[]
+
+vector_store/          # embeddings (entities, text_units, ...)</pre>
+              <p style="font-size: 1rem">
+                Every claim downstream traces back through this chain to the source text.
+              </p>
+            </div>
+            <div>
+              <img src="images/graph-3.png" alt="Parquet output tables" class="notion-img" />
+              <div class="img-caption"><span class="fig-key">fig.09</span> output tables — cross-referenced parquet schema</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 6 — Local search
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-21">
+        <div class="slide-content">
+          <div class="section-num">§6</div>
+          <h1>Local Search</h1>
+          <div class="section-sub">Smart retrieval via graph traversal</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 22 — Local search flow
+           ============================================================ -->
+      <section class="slide" id="slide-22">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§6 · LOCAL SEARCH</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">24 / 43</span>
+          </div>
+          <h2 class="with-underline">Local search · the 5-step flow</h2>
+          <ol>
+            <li><strong>Embed the query.</strong></li>
+            <li><strong>Find semantically related entities</strong> via vector similarity over entity embeddings.</li>
+            <li><strong>Traverse the neighborhood</strong> — collect connected entities, relationships, and optional covariates.</li>
+            <li><strong>Pull supporting context</strong> — the source text chunks and the community report for that area.</li>
+            <li><strong>Build a structured context window</strong> → LLM produces the answer.</li>
+          </ol>
+          <div class="img-carousel" data-carousel>
+            <button type="button" class="carousel-btn carousel-prev" aria-label="Previous image">‹</button>
+            <div class="carousel-track">
+              <img src="images/local-1.png" alt="Local search step 1" class="notion-img carousel-img" data-step="1" />
+              <img src="images/local-2.png" alt="Local search step 2" class="notion-img carousel-img" data-step="2" />
+              <img src="images/local-3.png" alt="Local search step 3" class="notion-img carousel-img" data-step="3" />
+              <img src="images/local-4.png" alt="Local search step 4" class="notion-img carousel-img" data-step="4" />
+              <img src="images/local-5.png" alt="Local search step 5" class="notion-img carousel-img" data-step="5" />
+            </div>
+            <button type="button" class="carousel-btn carousel-next" aria-label="Next image">›</button>
+            <div class="carousel-dots">
+              <button type="button" class="carousel-dot" data-index="0" aria-label="Go to step 1"></button>
+              <button type="button" class="carousel-dot" data-index="1" aria-label="Go to step 2"></button>
+              <button type="button" class="carousel-dot" data-index="2" aria-label="Go to step 3"></button>
+              <button type="button" class="carousel-dot" data-index="3" aria-label="Go to step 4"></button>
+              <button type="button" class="carousel-dot" data-index="4" aria-label="Go to step 5"></button>
+            </div>
+          </div>
+          <div class="img-caption" style="margin-top: 4px"><span class="fig-key">fig.10</span> local search · step <span class="carousel-counter" data-carousel-counter>1</span> / 5</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 23 — Local search context budget
+           ============================================================ -->
+      <section class="slide" id="slide-23">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§6 · LOCAL SEARCH</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">25 / 43</span>
+          </div>
+          <h2 class="with-underline">Context budget · how the tokens are spent</h2>
+          <p style="margin: 4px 0 8px; color: var(--text-secondary); font-size: 0.95rem;">
+            Microsoft's defaults shown — adjust to your model's window.
+          </p>
+          <div class="two-col">
+            <div>
+              <pre># Microsoft default context allocation
+max_tokens:       12000
+text_unit_prop:   0.5   # → 50% source text chunks
+community_prop:   0.1   # → 10% community report
+# remaining       0.4   # → 40% entity + rel descriptions</pre>
+              <div class="metric-grid">
+                <div class="metric"><div class="metric-key">text units</div><div class="metric-val">50%</div><div class="metric-note">source provenance</div></div>
+                <div class="metric"><div class="metric-key">community</div><div class="metric-val">10%</div><div class="metric-note">cluster context</div></div>
+                <div class="metric"><div class="metric-key">entities + rels</div><div class="metric-val">40%</div><div class="metric-note">graph reasoning</div></div>
+              </div>
+            </div>
+            <div>
+              <h3 style="margin-top: 0">Relationship ranking</h3>
+              <div class="card card-accent" style="margin-bottom: 10px">
+                <div class="card-title">In-network edges <span class="muted" style="font-weight: 400">· high priority</span></div>
+                <p style="font-size: 0.98rem; margin: 0">
+                  Both endpoints matched the query — these are <em>directly</em> on-topic relationships.
+                </p>
+              </div>
+              <div class="card">
+                <div class="card-title">Out-network edges <span class="muted" style="font-weight: 400">· medium priority</span></div>
+                <p style="font-size: 0.98rem; margin: 0">
+                  One endpoint matched, the other did not — included because they often surface
+                  surprising context, but ranked lower.
+                </p>
+              </div>
+              <div class="quote-box" style="margin-top: 12px; font-size: 1rem">
+                Asking <em>"what retribution is Laura seeking?"</em> → local search finds <em>entity</em> Laura,
+                walks her relationships, pulls her community report, and retrieves the source chunks where she
+                appears. Vector RAG would just find chunks that mention "Laura" and "retribution" nearby.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 7 — Global search
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-24">
+        <div class="slide-content">
+          <div class="section-num">§7</div>
+          <h1>Global Search</h1>
+          <div class="section-sub">Map-reduce over community summaries</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 25 — Global search overview
+           ============================================================ -->
+      <section class="slide" id="slide-25">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§7 · GLOBAL SEARCH</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">27 / 43</span>
+          </div>
+          <h2 class="with-underline">Global search · pre-computed reasoning + map-reduce</h2>
+          <div class="two-col-asym">
+            <div>
+              <p>
+                Global search uses the <span class="highlight">community reports</span> from a chosen hierarchy level
+                as context, and synthesizes an answer via map-reduce. The answer to <em>"what are the main themes?"</em>
+                doesn't live in any chunk — it's <em>distributed</em>. Pre-computed community summaries do the synthesis work
+                at indexing time so query-time can simply select and combine.
+              </p>
+              <h3>MAP phase · parallel</h3>
+              <pre>for each community_report at level L:
+  prompt LLM:
+    "Extract points relevant to {query}.
+     Return JSON: [{point, impact_rating}]"</pre>
+              <h3>REDUCE phase</h3>
+              <pre>collect_and_rank(all_points)
+prompt LLM:
+  "Synthesize the highest-impact points
+   into a single coherent answer."</pre>
+            </div>
+            <div>
+              <div class="img-carousel" data-carousel>
+                <button type="button" class="carousel-btn carousel-prev" aria-label="Previous image">‹</button>
+                <div class="carousel-track">
+                  <img src="images/global-1.png" alt="Global search overview" class="notion-img carousel-img" data-step="1" />
+                  <img src="images/global-2.png" alt="Global search map phase" class="notion-img carousel-img" data-step="2" />
+                </div>
+                <button type="button" class="carousel-btn carousel-next" aria-label="Next image">›</button>
+                <div class="carousel-dots">
+                  <button type="button" class="carousel-dot" data-index="0" aria-label="Go to image 1"></button>
+                  <button type="button" class="carousel-dot" data-index="1" aria-label="Go to image 2"></button>
+                </div>
+              </div>
+              <div class="img-caption" style="margin-top: 4px"><span class="fig-key">fig.11</span> global search · step <span class="carousel-counter" data-carousel-counter>1</span> / 2</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 26 — Global search reduce phase
+           ============================================================ -->
+      <section class="slide" id="slide-26">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§7 · GLOBAL SEARCH</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">28 / 43</span>
+          </div>
+          <h2 class="with-underline">Reduce phase + community level tradeoff</h2>
+          <div class="two-col-asym reverse">
+            <div>
+              <h3 style="margin-top: 0">Reduce</h3>
+              <p>
+                Map-extracted points carry impact ratings (inherited from each community's severity score).
+                Reduce ranks and re-prompts the LLM to synthesize the high-impact points into a coherent answer.
+              </p>
+              <h3>Community level matters</h3>
+              <table style="margin-top: 8px">
+                <thead><tr><th>Level</th><th># reports</th><th>Tradeoff</th></tr></thead>
+                <tbody>
+                  <tr><td><code>0</code></td><td>5–15</td><td>Cheap, broad</td></tr>
+                  <tr><td><code>1</code></td><td>50–100</td><td>Balanced</td></tr>
+                  <tr><td><code>2</code></td><td>100s–1000s</td><td>Expensive, granular</td></tr>
+                </tbody>
+              </table>
+              <p style="font-size: 1rem">
+                Lower levels yield more thorough answers, at higher latency and token cost.
+              </p>
+            </div>
+            <div>
+              <img src="images/global-3.png" alt="Reduce phase" class="notion-img" />
+              <div class="img-caption"><span class="fig-key">fig.12</span> reduce phase · synthesis from ranked points</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 27 — Dynamic community selection
+           ============================================================ -->
+      <section class="slide" id="slide-27">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§7 · GLOBAL SEARCH</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">29 / 43</span>
+          </div>
+          <h2 class="with-underline">Optimization · prune branches before map</h2>
+          <p style="margin: 4px 0 8px; color: var(--text-secondary); font-size: 0.95rem;">
+            Microsoft calls this <em>dynamic community selection</em> — same idea works for any hierarchical-community global search.
+          </p>
+          <div class="two-col-asym">
+            <div>
+              <div class="card card-danger" style="margin-bottom: 12px">
+                <div class="card-title danger">Static global search · brute force</div>
+                <p style="font-size: 0.98rem; margin: 0">
+                  Processes <em>every</em> community report at the chosen level — expensive, and many of those reports
+                  are irrelevant to the query.
+                </p>
+              </div>
+              <div class="card card-success">
+                <div class="card-title success">Dynamic selection · Microsoft's optimization</div>
+                <ol style="margin-bottom: 0; font-size: 0.98rem">
+                  <li>Start at the <strong>root</strong> of the community hierarchy.</li>
+                  <li>LLM rates relevance of current community report to query.</li>
+                  <li><span class="danger">Irrelevant?</span> Prune branch + all sub-communities.</li>
+                  <li><span class="success">Relevant?</span> Descend into children, repeat.</li>
+                </ol>
+              </div>
+              <p style="margin-top: 12px; font-size: 1.05rem">
+                <strong>Result:</strong> significant token cost reduction with quality often <em>improved</em>
+                because the LLM no longer drowns in irrelevant reports.
+              </p>
+            </div>
+            <div>
+              <img src="images/global-4.png" alt="Dynamic community selection" class="notion-img" />
+              <div class="img-caption"><span class="fig-key">fig.13</span> dynamic selection · tree-pruning search</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 8 — Community reports
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-28">
+        <div class="slide-content">
+          <div class="section-num">§8</div>
+          <h1>Community Reports</h1>
+          <div class="section-sub">The pre-computed reasoning layer — the "secret sauce"</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 29 — Community report JSON
+           ============================================================ -->
+      <section class="slide" id="slide-29">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§8 · COMMUNITY REPORTS</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">31 / 43</span>
+          </div>
+          <h2 class="with-underline">Community report · the JSON schema</h2>
+          <div class="two-col-asym">
+            <div>
+              <p>
+                The LLM is prompted to write a comprehensive assessment of a community with a strict structure:
+                title, executive summary, 0–10 impact severity rating, and 5–10 findings — each grounded by
+                entity/relationship references.
+              </p>
+              <pre>{
+  "title": "Short, specific, with named entities",
+  "summary": "Executive summary of structure &amp; themes",
+  "rating": 8,                  // impact severity 0–10
+  "findings": [
+    {
+      "summary": "Finding headline",
+      "explanation": "Detailed grounded explanation",
+      "references": [
+        "entity_id:123",
+        "relationship_id:456"
+      ]
+    },
+    /* 5–10 findings total */
+  ]
+}</pre>
+            </div>
+            <div>
+              <img src="images/community-1.png" alt="Community report example" class="notion-img" />
+              <div class="img-caption"><span class="fig-key">fig.14</span> example community report</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 30 — Why community reports matter
+           ============================================================ -->
+      <section class="slide" id="slide-30">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§8 · COMMUNITY REPORTS</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">32 / 43</span>
+          </div>
+          <h2 class="with-underline">Three properties make reports the secret sauce</h2>
+          <div class="three-col">
+            <div class="card card-accent">
+              <div class="card-title">🔗 Grounded references</div>
+              <p style="font-size: 0.95rem; margin: 0">
+                Every claim must cite specific <code>entity_id</code> or <code>relationship_id</code> values.
+                The LLM is instructed <em>not</em> to include information unsupported by evidence.
+                Reports are <strong>traceable</strong> back to source text.
+              </p>
+            </div>
+            <div class="card card-accent">
+              <div class="card-title">📊 Impact rating</div>
+              <p style="font-size: 0.95rem; margin: 0">
+                The 0–10 severity score is not just metadata — it's used to <strong>rank</strong> communities
+                during global search's reduce phase. For business docs it flags risk areas; for fiction, dramatic tension.
+              </p>
+            </div>
+            <div class="card card-accent">
+              <div class="card-title">🪆 Hierarchical substitution</div>
+              <p style="font-size: 0.95rem; margin: 0">
+                When a parent community is too large for raw entity/rel descriptions to fit in the LLM context,
+                they are <strong>replaced by the sub-community reports</strong>. The parent becomes a
+                "summary of summaries" — still grounded, at a higher abstraction.
+              </p>
+            </div>
+          </div>
+          <div class="img-carousel" data-carousel style="margin-top: 16px">
+            <button type="button" class="carousel-btn carousel-prev" aria-label="Previous image">‹</button>
+            <div class="carousel-track">
+              <img src="images/community-2.png" alt="Community report sample 1" class="notion-img carousel-img" data-step="1" data-caption="Level 0 · root community report (broadest summary)" />
+              <img src="images/community-3.png" alt="Community report sample 2" class="notion-img carousel-img" data-step="2" data-caption="Level 1 · sub-community report (mid granularity)" />
+              <img src="images/community-4.png" alt="Community report sample 3" class="notion-img carousel-img" data-step="3" data-caption="Level 2 · leaf community report (fine-grained)" />
+            </div>
+            <button type="button" class="carousel-btn carousel-next" aria-label="Next image">›</button>
+            <div class="carousel-dots">
+              <button type="button" class="carousel-dot" data-index="0" aria-label="Go to level 0"></button>
+              <button type="button" class="carousel-dot" data-index="1" aria-label="Go to level 1"></button>
+              <button type="button" class="carousel-dot" data-index="2" aria-label="Go to level 2"></button>
+            </div>
+          </div>
+          <div class="img-caption" style="margin-top: 4px">
+            <span class="fig-key">fig.15</span>
+            <span data-carousel-caption>Level 0 · root community report (broadest summary)</span>
+            <span class="muted"> · <span class="carousel-counter" data-carousel-counter>1</span> / 3</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 9 — Query modes
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-31">
+        <div class="slide-content">
+          <div class="section-num">§9</div>
+          <h1>Query Modes &amp; Routing</h1>
+          <div class="section-sub">basic · local · global · drift — and how to route</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 32 — Four query modes
+           ============================================================ -->
+      <section class="slide" id="slide-32">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§9 · QUERY MODES</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">34 / 43</span>
+          </div>
+          <h2 class="with-underline">Four query modes at a glance</h2>
+          <p style="margin: 4px 0 8px; color: var(--text-secondary); font-size: 0.95rem;">
+            Microsoft GraphRAG ships four modes — local, global, DRIFT, basic.
+            <strong>Local</strong> and <strong>global</strong> are universal GraphRAG concepts; <strong>DRIFT</strong> and <strong>basic</strong> are Microsoft's specific implementations.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Best for</th>
+                <th>Mechanism</th>
+                <th>Latency</th>
+                <th>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>basic</code></td>
+                <td>Simple similarity lookups</td>
+                <td>Standard top-k vector search (baseline RAG)</td>
+                <td>⚡ Fast</td>
+                <td class="success">Low</td>
+              </tr>
+              <tr>
+                <td><code>local</code></td>
+                <td>Specific entity questions</td>
+                <td>Embed query → entities → graph traversal → context → respond</td>
+                <td>🚶 Medium</td>
+                <td>Medium</td>
+              </tr>
+              <tr>
+                <td><code>global</code></td>
+                <td>Broad thematic questions</td>
+                <td>Map-reduce across all community summaries</td>
+                <td>🐌 Slow</td>
+                <td class="danger">High</td>
+              </tr>
+              <tr>
+                <td><code>drift</code></td>
+                <td>Complex — breadth &amp; depth</td>
+                <td>Community reports → local refinement → hierarchical output</td>
+                <td>🐢 Slowest</td>
+                <td class="danger">Highest</td>
+              </tr>
+            </tbody>
+          </table>
+          <h3 style="margin-top: 8px">DRIFT · Dynamic Reasoning and Inference with Flexible Traversal</h3>
+          <p>
+            Starts like global (community reports), then drills down via local with LLM-generated follow-up questions.
+            More expensive but produces both <strong>breadth</strong> and <strong>depth</strong> in one answer.
+            CLI flag: <code>--method drift</code>.
+          </p>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 33 — Agentic routing
+           ============================================================ -->
+      <section class="slide" id="slide-33">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§9 · QUERY MODES</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">35 / 43</span>
+          </div>
+          <h2 class="with-underline">Agentic routing · don't make the user choose</h2>
+          <div class="two-col-asym">
+            <div>
+              <p>
+                The query mode is an implementation detail. Route automatically based on query intent,
+                either with a lightweight heuristic or a small LLM classifier (the few tokens it costs
+                will save you an expensive global call when one isn't needed).
+              </p>
+              <pre>def route_query(query: str) -> Literal[
+    "basic", "local", "global", "drift"
+]:
+    q = query.lower()
+
+    # broad thematic signals → global
+    if any(w in q for w in
+           ["themes", "summary", "overview",
+            "main", "across", "all"]):
+        return "global"
+
+    # named entity / fact signals → local
+    if any(w in q for w in
+           ["who", "what is", "module",
+            "function", "depends on"]):
+        return "local"
+
+    # complex, ambiguous → drift
+    if "compare" in q or "why" in q:
+        return "drift"
+
+    return "basic"</pre>
+            </div>
+            <div>
+              <img src="images/global-5.png" alt="Global vs local mode comparison" class="notion-img" />
+              <div class="img-caption"><span class="fig-key">fig.16</span> when to use which mode</div>
+              <div class="quote-box" style="margin-top: 8px">
+                A few tokens for classification save you from an expensive global map-reduce
+                on queries that only need a local lookup.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 10 — Production concerns
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-34">
+        <div class="slide-content">
+          <div class="section-num">§10</div>
+          <h1>Production Concerns</h1>
+          <div class="section-sub">Cost · latency · data freshness · prompt tuning</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 35 — Cost & latency
+           ============================================================ -->
+      <section class="slide" id="slide-35">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§10 · PRODUCTION</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">37 / 43</span>
+          </div>
+          <h2 class="with-underline">Cost &amp; latency · where the money goes</h2>
+          <p style="margin: 4px 0 8px; color: var(--text-secondary); font-size: 0.95rem;">
+            Example below uses Microsoft GraphRAG on GPT-4o pricing — exact numbers depend on your model + corpus, but the proportions are universal.
+          </p>
+          <div class="two-col">
+            <div>
+              <h3 style="margin-top: 0">Indexing · one-time, expensive</h3>
+              <ul>
+                <li>1 extraction LLM call per chunk</li>
+                <li>1 summarization LLM call per community</li>
+                <li>Embedding calls for all entities + text units</li>
+              </ul>
+              <div class="metric-grid">
+                <div class="metric">
+                  <div class="metric-key">10k chunks</div>
+                  <div class="metric-val">~10k+</div>
+                  <div class="metric-note">extraction calls</div>
+                </div>
+                <div class="metric">
+                  <div class="metric-key">+ communities</div>
+                  <div class="metric-val">~500+</div>
+                  <div class="metric-note">summarization calls</div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <h3 style="margin-top: 0">Query · per-call</h3>
+              <table>
+                <thead><tr><th>Mode</th><th>Latency</th><th>Notes</th></tr></thead>
+                <tbody>
+                  <tr><td><code>basic</code></td><td>&lt; 1s</td><td>1 LLM call</td></tr>
+                  <tr><td><code>local</code></td><td>1–2s</td><td>medium tokens</td></tr>
+                  <tr><td><code>global</code></td><td>5–15s</td><td>high tokens, parallel map</td></tr>
+                  <tr><td><code>drift</code></td><td>10–30s</td><td>very high tokens</td></tr>
+                </tbody>
+              </table>
+              <div class="card card-accent" style="margin-top: 8px">
+                <div class="card-title">Mitigation playbook</div>
+                <ul style="font-size: 0.95rem; margin-bottom: 0">
+                  <li>Use <strong>dynamic community selection</strong> for global</li>
+                  <li>Cache query results aggressively</li>
+                  <li>Route simple queries to <code>basic</code> via agentic classifier</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 36 — Data freshness
+           ============================================================ -->
+      <section class="slide" id="slide-36">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§10 · PRODUCTION</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">38 / 43</span>
+          </div>
+          <h2 class="with-underline">Data freshness · GraphRAG isn't a vector DB</h2>
+          <p>
+            Unlike vector RAG, you cannot just append new chunks — communities and summaries depend on the
+            global graph state. Plan your freshness strategy upfront.
+          </p>
+          <div class="three-col">
+            <div class="card">
+              <div class="card-title">Full re-index</div>
+              <p style="font-size: 0.95rem; margin: 0">
+                Highest consistency, highest cost. Run nightly or weekly for slow-moving corpora.
+              </p>
+            </div>
+            <div class="card">
+              <div class="card-title">Incremental add</div>
+              <p style="font-size: 0.95rem; margin: 0">
+                Append new docs only — new entities arrive disconnected from existing communities.
+                Useful as a stopgap; degrades global search quality over time.
+              </p>
+            </div>
+            <div class="card card-accent">
+              <div class="card-title">Hybrid · re-index affected communities</div>
+              <p style="font-size: 0.95rem; margin: 0">
+                Identify communities touched by new docs and re-summarize only those. Advanced — DIY.
+              </p>
+            </div>
+          </div>
+          <div class="quote-box" style="margin-top: 16px">
+            Production pattern: schedule full re-index nightly/weekly. Use vector RAG as a fallback for
+            very recent documents. Monitor entity quality after each re-index.
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 37 — Prompt tuning
+           ============================================================ -->
+      <section class="slide" id="slide-37">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§10 · PRODUCTION</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">39 / 43</span>
+          </div>
+          <h2 class="with-underline">Prompt tuning · the highest-leverage knob</h2>
+          <p>
+            The default prompts are generic. Microsoft ships a <code>graphrag prompt-tune</code> CLI that
+            auto-generates domain-specific prompts from a sample of your data — but the principle applies to any
+            GraphRAG: tuned, domain-specific prompts are one of the highest-leverage things you can do.
+          </p>
+          <div class="two-col">
+            <div>
+              <h3 style="margin-top: 0">What auto-tune does</h3>
+              <ol>
+                <li>Generates a <strong>persona</strong> for the LLM to assume in your domain.</li>
+                <li>Uses persona + sample text to generate <strong>custom few-shot examples</strong>.</li>
+                <li>Replaces the default 15-entity / 12-relationship examples with your own.</li>
+              </ol>
+              <h3>Three levers · biggest impact on quality</h3>
+              <ol>
+                <li><strong>Chunk size</strong> — start 1200, adjust for granularity.</li>
+                <li><strong>Entity types</strong> — default <code>Geo, Person, Event, Org</code> → customize to <code>API, Risk, Agent, Module…</code></li>
+                <li><strong>Few-shot examples</strong> — default is generic → tune for your data.</li>
+              </ol>
+            </div>
+            <div>
+              <h3 style="margin-top: 0">Workflow</h3>
+              <pre># 1. Sample your corpus
+graphrag sample \
+  --root ./data \
+  --limit 10
+
+# 2. Auto-generate prompts
+graphrag prompt-tune \
+  --root ./data \
+  --domain "my-domain"
+
+# 3. Inspect generated prompts
+ls prompts/
+#   entity_extraction.txt
+#   community_report.txt
+#   summarize_descriptions.txt
+
+# 4. Run the index
+graphrag index --root ./data</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 38 — When to use GraphRAG
+           ============================================================ -->
+      <section class="slide" id="slide-38">
+        <div class="slide-content">
+          <div class="slide-eyebrow">
+            <span>§10 · PRODUCTION</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">40 / 43</span>
+          </div>
+          <h2 class="with-underline">When to use GraphRAG vs vector RAG</h2>
+          <div class="two-col">
+            <div class="card card-success">
+              <div class="card-title success">✓ Use GraphRAG when</div>
+              <ul style="margin-bottom: 0">
+                <li>Cross-document reasoning is needed</li>
+                <li>Thematic synthesis required ("what are the recurring…")</li>
+                <li>Clear entities and relationships exist in your domain</li>
+                <li>Indexing cost is acceptable (corpus is slow-moving)</li>
+                <li>You need traceable, grounded answers (entity-ID citations)</li>
+              </ul>
+            </div>
+            <div class="card card-accent">
+              <div class="card-title">✓ Stick to vector RAG when</div>
+              <ul style="margin-bottom: 0">
+                <li>Specific, factual lookups dominate</li>
+                <li>High data volatility (chunks change constantly)</li>
+                <li>Tight cost/latency constraints</li>
+                <li>Entities are highly ambiguous (no clean dedup)</li>
+                <li>You don't need cross-document synthesis</li>
+              </ul>
+            </div>
+          </div>
+          <div class="quote-box success-quote" style="margin-top: 16px">
+            <strong>Hybrid pattern (production-grade):</strong> an agent routes simple lookups to vector RAG,
+            and complex synthesis to GraphRAG. Two tools, one consistent UX.
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           SECTION 11 — Closing
+           ============================================================ -->
+      <section class="slide section-divider" id="slide-39">
+        <div class="slide-content">
+          <div class="section-num">§11</div>
+          <h1>Summary &amp; Discussion</h1>
+          <div class="section-sub">Mental model · next steps · Q&amp;A</div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 40 — Mental model
+           ============================================================ -->
+      <section class="slide" id="slide-40">
+        <div class="slide-content flex-center">
+          <div class="slide-eyebrow">
+            <span>§11 · SUMMARY</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">42 / 43</span>
+          </div>
+          <h2 class="with-underline">The mental model</h2>
+          <div class="two-col" style="text-align: left; margin-top: 8px">
+            <div class="card card-danger">
+              <div class="card-title danger">Traditional RAG</div>
+              <p style="font-size: 1.1rem; margin-bottom: 8px"><strong>"Find me the most similar chunks."</strong></p>
+              <ul style="font-size: 1rem; margin-bottom: 0">
+                <li>Cheap to build · low latency</li>
+                <li>Easy to update incrementally</li>
+                <li>Local retrieval — <strong>fails on synthesis</strong></li>
+              </ul>
+            </div>
+            <div class="card card-success">
+              <div class="card-title success">GraphRAG</div>
+              <p style="font-size: 1.1rem; margin-bottom: 8px"><strong>"Build a map of all knowledge first, then navigate it."</strong></p>
+              <ul style="font-size: 1rem; margin-bottom: 0">
+                <li>Expensive to build · pre-computes reasoning</li>
+                <li>Local search via graph traversal</li>
+                <li>Global search via community summaries</li>
+              </ul>
+            </div>
+          </div>
+          <div class="quote-box" style="margin-top: 20px">
+            <strong>The core tradeoff:</strong> pay upfront in indexing cost · gain superior reasoning on global questions.
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           Slide 41 — Thank you (closer)
+           ============================================================ -->
+      <section class="slide title-slide thankyou-slide" id="slide-41">
+        <div class="slide-content flex-center" style="text-align: center; gap: 18px;">
+          <div class="slide-eyebrow" style="justify-content: center;">
+            <span>§11 · CLOSING</span><span class="slide-eyebrow-sep">//</span>
+            <span class="slide-eyebrow-num">43 / 43</span>
+          </div>
+          <h1 class="thankyou-title">Thank you.</h1>
+          <p class="thankyou-sub">Questions, discussion — let's dig in.</p>
+          <div class="hero-graph-frame thankyou-graph" aria-hidden="true">
+            <div class="hero-graph-corner tl"></div>
+            <div class="hero-graph-corner tr"></div>
+            <div class="hero-graph-corner bl"></div>
+            <div class="hero-graph-corner br"></div>
+
+            <svg class="hero-graph-svg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <radialGradient id="tyNode" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#2563eb" stop-opacity="0.9" />
+                  <stop offset="100%" stop-color="#2563eb" stop-opacity="0.15" />
+                </radialGradient>
+                <pattern id="tyGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e2e8f0" stroke-width="1" />
+                </pattern>
+              </defs>
+              <rect width="400" height="400" fill="url(#tyGrid)" />
+              <g stroke="#2563eb" stroke-width="1.2" stroke-opacity="0.55" fill="none">
+                <line x1="80" y1="90" x2="200" y2="60" />
+                <line x1="200" y1="60" x2="320" y2="120" />
+                <line x1="80" y1="90" x2="140" y2="200" />
+                <line x1="140" y1="200" x2="200" y2="60" />
+                <line x1="140" y1="200" x2="260" y2="220" />
+                <line x1="260" y1="220" x2="320" y2="120" />
+                <line x1="260" y1="220" x2="330" y2="310" />
+                <line x1="140" y1="200" x2="90" y2="320" />
+                <line x1="90" y1="320" x2="220" y2="340" />
+                <line x1="220" y1="340" x2="330" y2="310" />
+                <line x1="200" y1="60" x2="330" y2="310" stroke-dasharray="4 6" stroke-opacity="0.35" />
+                <line x1="80" y1="90" x2="330" y2="310" stroke-dasharray="4 6" stroke-opacity="0.25" />
+              </g>
+              <g>
+                <circle cx="80" cy="90" r="9" fill="url(#tyNode)" />
+                <circle cx="200" cy="60" r="13" fill="url(#tyNode)" />
+                <circle cx="320" cy="120" r="10" fill="url(#tyNode)" />
+                <circle cx="140" cy="200" r="15" fill="url(#tyNode)" />
+                <circle cx="260" cy="220" r="11" fill="url(#tyNode)" />
+                <circle cx="90" cy="320" r="8" fill="url(#tyNode)" />
+                <circle cx="220" cy="340" r="12" fill="url(#tyNode)" />
+                <circle cx="330" cy="310" r="9" fill="url(#tyNode)" />
+              </g>
+              <circle cx="140" cy="200" r="15" fill="none" stroke="#2563eb" stroke-width="1.5">
+                <animate attributeName="r" from="15" to="44" dur="3.4s" repeatCount="indefinite" />
+                <animate attributeName="stroke-opacity" from="0.55" to="0" dur="3.4s" repeatCount="indefinite" />
+              </circle>
+              <circle cx="260" cy="220" r="11" fill="none" stroke="#2563eb" stroke-width="1.5">
+                <animate attributeName="r" from="11" to="38" dur="3.4s" begin="1.2s" repeatCount="indefinite" />
+                <animate attributeName="stroke-opacity" from="0.55" to="0" dur="3.4s" begin="1.2s" repeatCount="indefinite" />
+              </circle>
+            </svg>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div id="img-lightbox" aria-hidden="true">
+      <img class="lb-img" alt="" style="visibility: hidden" />
+      <div class="lb-hint">click anywhere · esc to close</div>
+    </div>
+
+    <div id="controls">
+      <span id="slide-counter">1 / 43</span>
+      <button id="prev-btn" onclick="prevSlide()">← Prev</button>
+      <button id="next-btn" onclick="nextSlide()">Next →</button>
+    </div>
+
+    <a class="source-ref" href="https://www.notion.so/Phase-1-Foundations-RAG-vs-GraphRAG-3440f2b9dd85818ca4caecf998da10b2" target="_blank">
+      source · notion · phase-1-foundations
+    </a>
+
+    <script>
+      let currentSlide = 0;
+      const slides = document.querySelectorAll(".slide");
+      const totalSlides = slides.length;
+      const counterEl = document.getElementById("slide-counter");
+      const prevBtn = document.getElementById("prev-btn");
+      const nextBtn = document.getElementById("next-btn");
+      const progressBar = document.getElementById("progress");
+
+      function updateUI() {
+        slides.forEach((slide, index) => {
+          if (index === currentSlide) slide.classList.add("active");
+          else slide.classList.remove("active");
+        });
+        counterEl.textContent = `${currentSlide + 1} / ${totalSlides}`;
+        prevBtn.disabled = currentSlide === 0;
+        nextBtn.disabled = currentSlide === totalSlides - 1;
+        progressBar.style.width = `${((currentSlide + 1) / totalSlides) * 100}%`;
+      }
+      function nextSlide() { forceCloseLightbox(); if (currentSlide < totalSlides - 1) { currentSlide++; updateUI(); } }
+      function prevSlide() { forceCloseLightbox(); if (currentSlide > 0) { currentSlide--; updateUI(); } }
+      document.addEventListener("keydown", (e) => {
+        if (lightbox.classList.contains("open")) {
+          if (e.key === "Escape") { closeLightbox(); e.preventDefault(); }
+          return;
+        }
+        if (e.key === "ArrowRight" || e.key === " " || e.key === "Enter") nextSlide();
+        else if (e.key === "ArrowLeft") prevSlide();
+        else if (e.key === "Home") { forceCloseLightbox(); currentSlide = 0; updateUI(); }
+        else if (e.key === "End") { forceCloseLightbox(); currentSlide = totalSlides - 1; updateUI(); }
+      });
+
+      /* ─── Click-to-zoom lightbox ─────────────────────────────── */
+      const lightbox = document.getElementById("img-lightbox");
+      const lightboxImg = lightbox.querySelector(".lb-img");
+      let lightboxSource = null;
+      let lightboxAnimating = false;
+
+      function computeTargetRect(naturalW, naturalH, fallbackRatio) {
+        const maxW = window.innerWidth * 0.92;
+        const maxH = window.innerHeight * 0.88;
+        const ratio = (naturalW && naturalH) ? naturalW / naturalH : fallbackRatio;
+        let w = maxW, h = maxW / ratio;
+        if (h > maxH) { h = maxH; w = maxH * ratio; }
+        return {
+          top: (window.innerHeight - h) / 2,
+          left: (window.innerWidth - w) / 2,
+          width: w,
+          height: h,
+        };
+      }
+
+      function applyRect(el, rect) {
+        el.style.top = rect.top + "px";
+        el.style.left = rect.left + "px";
+        el.style.width = rect.width + "px";
+        el.style.height = rect.height + "px";
+      }
+
+      function openLightbox(img) {
+        if (lightboxAnimating) return;
+        const startRect = img.getBoundingClientRect();
+        lightboxSource = img;
+        lightboxImg.src = img.src;
+        lightboxImg.alt = img.alt || "";
+        // Start at the clicked image's position — no transition for this step
+        lightboxImg.style.transition = "none";
+        lightboxImg.style.visibility = "visible";
+        applyRect(lightboxImg, startRect);
+        lightbox.classList.add("open");
+        // Force layout so the next change animates
+        void lightboxImg.offsetWidth;
+        lightboxImg.style.transition = "";
+        const targetRect = computeTargetRect(
+          img.naturalWidth,
+          img.naturalHeight,
+          startRect.width / startRect.height
+        );
+        applyRect(lightboxImg, targetRect);
+      }
+
+      function closeLightbox() {
+        if (!lightboxSource || lightboxAnimating) return;
+        lightboxAnimating = true;
+        const endRect = lightboxSource.getBoundingClientRect();
+        applyRect(lightboxImg, endRect);
+        lightbox.classList.remove("open");
+        const onEnd = () => {
+          lightboxImg.removeEventListener("transitionend", onEnd);
+          lightboxSource = null;
+          lightboxAnimating = false;
+          lightboxImg.style.visibility = "hidden";
+        };
+        lightboxImg.addEventListener("transitionend", onEnd);
+        // Safety fallback in case transitionend doesn't fire
+        setTimeout(onEnd, 600);
+      }
+
+      function forceCloseLightbox() {
+        if (!lightbox.classList.contains("open") && !lightboxSource) return;
+        lightbox.classList.remove("open");
+        lightboxImg.style.transition = "none";
+        lightboxImg.style.visibility = "hidden";
+        lightboxSource = null;
+        lightboxAnimating = false;
+        requestAnimationFrame(() => { lightboxImg.style.transition = ""; });
+      }
+
+      document.querySelectorAll("img.notion-img").forEach((img) => {
+        img.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openLightbox(img);
+        });
+      });
+      lightbox.addEventListener("click", closeLightbox);
+      window.addEventListener("resize", () => {
+        if (!lightbox.classList.contains("open") || !lightboxSource) return;
+        const t = computeTargetRect(
+          lightboxSource.naturalWidth,
+          lightboxSource.naturalHeight,
+          lightboxSource.naturalWidth / lightboxSource.naturalHeight
+        );
+        applyRect(lightboxImg, t);
+      });
+
+      /* ─── Image carousel (slide 24 etc.) ─────────────────────── */
+      document.querySelectorAll("[data-carousel]").forEach((carousel) => {
+        const imgs = carousel.querySelectorAll(".carousel-img");
+        const dots = carousel.querySelectorAll(".carousel-dot");
+        const prevBtn = carousel.querySelector(".carousel-prev");
+        const nextBtn = carousel.querySelector(".carousel-next");
+        const counterEl = carousel.parentElement.querySelector("[data-carousel-counter]");
+        const captionEl = carousel.parentElement.querySelector("[data-carousel-caption]");
+        let idx = 0;
+        const render = () => {
+          imgs.forEach((img, i) => img.classList.toggle("is-active", i === idx));
+          dots.forEach((dot, i) => dot.classList.toggle("is-active", i === idx));
+          if (counterEl) counterEl.textContent = String(idx + 1);
+          if (captionEl) captionEl.textContent = imgs[idx].dataset.caption || "";
+          prevBtn.disabled = idx === 0;
+          nextBtn.disabled = idx === imgs.length - 1;
+        };
+        prevBtn.addEventListener("click", (e) => { e.stopPropagation(); if (idx > 0) { idx--; render(); } });
+        nextBtn.addEventListener("click", (e) => { e.stopPropagation(); if (idx < imgs.length - 1) { idx++; render(); } });
+        dots.forEach((dot) => {
+          dot.addEventListener("click", (e) => {
+            e.stopPropagation();
+            idx = Number(dot.dataset.index);
+            render();
+          });
+        });
+        render();
+      });
+
+      updateUI();
+      window.onload = () => window.focus();
+    </script>
+  </body>
+</html>
