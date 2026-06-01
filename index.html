@@ -218,6 +218,57 @@
       .tok-n { color: #fbbf24; }
       .tok-f { color: #67e8f9; }
 
+      /* official prompt card */
+      .prompt-card {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-soft);
+        padding: 16px 20px;
+        margin: 24px 0;
+      }
+      .prompt-card .prompt-summary {
+        font-size: 0.95rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+      .prompt-card .prompt-summary strong { color: var(--text); }
+      .prompt-card details {
+        margin-top: 12px;
+        border-top: 1px dashed var(--border);
+        padding-top: 12px;
+      }
+      .prompt-card details > summary {
+        cursor: pointer;
+        font-size: 0.88rem;
+        font-weight: 600;
+        color: var(--accent);
+        list-style: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        user-select: none;
+      }
+      .prompt-card details > summary::-webkit-details-marker { display: none; }
+      .prompt-card details > summary::before {
+        content: "▸";
+        font-size: 0.8em;
+        transition: transform 0.15s ease;
+        display: inline-block;
+      }
+      .prompt-card details[open] > summary::before { transform: rotate(90deg); }
+      .prompt-card details pre { margin: 14px 0 10px; font-size: 0.78rem; }
+      .prompt-source {
+        font-size: 0.82rem;
+        color: var(--text-faint);
+        margin-top: 8px;
+      }
+      .prompt-source a {
+        color: var(--text-muted);
+        text-decoration: none;
+        border-bottom: 1px dotted var(--border-strong);
+      }
+      .prompt-source a:hover { color: var(--accent); border-color: var(--accent); }
+
       /* callout */
       .callout {
         border-left: 3px solid var(--accent);
@@ -476,7 +527,120 @@
         </ol>
 
         <figure class="wide">
-          <img src="images/main-2.png" alt="GraphRAG pipeline: documents → chunks → extraction → graph → communities → summaries → search." />
+          <div class="diagram">
+            <svg viewBox="0 0 1100 560" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,system-ui,sans-serif; display:block; width:100%; height:auto;" aria-label="GraphRAG pipeline: six build-time stages produce the graph and summaries; two runtime engines consume them.">
+              <defs>
+                <marker id="art-pv-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+                </marker>
+                <filter id="art-pv-shadow" x="-10%" y="-10%" width="120%" height="120%">
+                  <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.08"/>
+                </filter>
+              </defs>
+
+              <!-- BAND 1: BUILD TIME -->
+              <text x="12" y="16" font-size="13" font-weight="600" fill="#475569" letter-spacing="1.5" style="text-transform:uppercase;">§ Build time · indexing</text>
+              <text x="1088" y="16" font-size="13" fill="#94a3b8" text-anchor="end">run once · expensive</text>
+
+              <g filter="url(#art-pv-shadow)">
+                <rect x="30" y="40" width="145" height="70" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2"/>
+                <circle cx="46" cy="56" r="11" fill="#64748b"/>
+                <text x="46" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">1</text>
+                <text x="102" y="78" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Chunk</text>
+                <text x="102" y="96" text-anchor="middle" font-size="13" fill="#475569">token splits</text>
+              </g>
+              <text x="102" y="132" text-anchor="middle" font-size="13" fill="#94a3b8">CPU · 0%</text>
+
+              <g filter="url(#art-pv-shadow)">
+                <rect x="192" y="40" width="145" height="70" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
+                <circle cx="208" cy="56" r="11" fill="#2563eb"/>
+                <text x="208" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">2</text>
+                <text x="264" y="78" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Extract</text>
+                <text x="264" y="96" text-anchor="middle" font-size="13" fill="#475569">entities + rels</text>
+              </g>
+              <text x="264" y="132" text-anchor="middle" font-size="13" font-weight="600" fill="#2563eb">LLM · ~75%</text>
+
+              <g filter="url(#art-pv-shadow)">
+                <rect x="354" y="40" width="145" height="70" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
+                <circle cx="370" cy="56" r="11" fill="#2563eb"/>
+                <text x="370" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">3</text>
+                <text x="426" y="78" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Dedupe</text>
+                <text x="426" y="96" text-anchor="middle" font-size="13" fill="#475569">merge descriptions</text>
+              </g>
+              <text x="426" y="132" text-anchor="middle" font-size="13" font-weight="600" fill="#2563eb">LLM · ~10%</text>
+
+              <g filter="url(#art-pv-shadow)">
+                <rect x="516" y="40" width="145" height="70" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2"/>
+                <circle cx="532" cy="56" r="11" fill="#64748b"/>
+                <text x="532" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">4</text>
+                <text x="588" y="78" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Detect</text>
+                <text x="588" y="96" text-anchor="middle" font-size="13" fill="#475569">hierarchical clusters</text>
+              </g>
+              <text x="588" y="132" text-anchor="middle" font-size="13" fill="#94a3b8">CPU · 0%</text>
+
+              <g filter="url(#art-pv-shadow)">
+                <rect x="678" y="40" width="145" height="70" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
+                <circle cx="694" cy="56" r="11" fill="#2563eb"/>
+                <text x="694" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">5</text>
+                <text x="750" y="78" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Report</text>
+                <text x="750" y="96" text-anchor="middle" font-size="13" fill="#475569">community summaries</text>
+              </g>
+              <text x="750" y="132" text-anchor="middle" font-size="13" font-weight="600" fill="#2563eb">LLM · ~10%</text>
+
+              <g filter="url(#art-pv-shadow)">
+                <rect x="840" y="40" width="145" height="70" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.2"/>
+                <circle cx="856" cy="56" r="11" fill="#16a34a"/>
+                <text x="856" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">6</text>
+                <text x="912" y="78" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Embed</text>
+                <text x="912" y="96" text-anchor="middle" font-size="13" fill="#475569">vectors for search</text>
+              </g>
+              <text x="912" y="132" text-anchor="middle" font-size="13" font-weight="600" fill="#16a34a">Vec · ~5%</text>
+
+              <line x1="175" y1="75" x2="190" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#art-pv-arrow)"/>
+              <line x1="337" y1="75" x2="352" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#art-pv-arrow)"/>
+              <line x1="499" y1="75" x2="514" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#art-pv-arrow)"/>
+              <line x1="661" y1="75" x2="676" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#art-pv-arrow)"/>
+              <line x1="823" y1="75" x2="838" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#art-pv-arrow)"/>
+
+              <line x1="550" y1="160" x2="550" y2="208" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#art-pv-arrow)"/>
+
+              <!-- BAND 2: ARTIFACT -->
+              <g filter="url(#art-pv-shadow)">
+                <rect x="270" y="218" width="560" height="92" rx="12" fill="#fff" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6 4"/>
+                <text x="550" y="250" text-anchor="middle" font-size="17" font-weight="700" fill="#0f172a">Knowledge graph + community reports + embeddings</text>
+                <text x="550" y="274" text-anchor="middle" font-size="13" font-style="italic" fill="#475569">persisted to parquet / vector store · read at query time</text>
+                <text x="550" y="296" text-anchor="middle" font-size="13" fill="#94a3b8">entities · relationships · communities · reports · text-unit embeddings</text>
+              </g>
+
+              <line x1="550" y1="318" x2="550" y2="362" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#art-pv-arrow)"/>
+
+              <!-- BAND 3: QUERY TIME -->
+              <text x="12" y="358" font-size="13" font-weight="600" fill="#475569" letter-spacing="1.5" style="text-transform:uppercase;">§ Query time · two engines</text>
+              <text x="1088" y="358" font-size="13" fill="#94a3b8" text-anchor="end">per query · cheap</text>
+
+              <g filter="url(#art-pv-shadow)">
+                <rect x="30" y="438" width="140" height="44" rx="22" fill="#fff" stroke="#94a3b8" stroke-width="1.2"/>
+                <text x="100" y="465" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">user query</text>
+              </g>
+
+              <path d="M 170 460 C 200 460, 200 415, 230 415" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#art-pv-arrow)"/>
+              <path d="M 170 460 C 200 460, 200 505, 230 505" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#art-pv-arrow)"/>
+
+              <g filter="url(#art-pv-shadow)">
+                <rect x="240" y="380" width="850" height="72" rx="10" fill="#fff" stroke="#cbd5e1" stroke-width="1.2"/>
+                <text x="260" y="408" font-size="17" font-weight="700" fill="#0f172a">Local · graph walk</text>
+                <text x="260" y="430" font-size="14" fill="#475569">seed entities (embed sim) → fan out to neighborhood → pack entities + rels + chunks + reports → LLM</text>
+                <text x="260" y="446" font-size="12.5" font-style="italic" fill="#94a3b8">good for: specific facts · "what does module X depend on?"</text>
+              </g>
+
+              <g filter="url(#art-pv-shadow)">
+                <rect x="240" y="468" width="850" height="72" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+                <text x="260" y="496" font-size="17" font-weight="700" fill="#0f172a">Global · map-reduce</text>
+                <text x="260" y="518" font-size="14" fill="#475569">shuffle community reports → map: LLM extracts key points in parallel → reduce: LLM aggregates → answer</text>
+                <text x="260" y="534" font-size="12.5" font-style="italic" fill="#94a3b8">good for: themes &amp; synthesis · "recurring risks across 200 reports?"</text>
+              </g>
+            </svg>
+          </div>
           <figcaption>The pipeline. Build time produces a graph and a tree of community summaries. Query time uses two engines on top: local (walk the graph) and global (map-reduce over summaries).</figcaption>
         </figure>
 
@@ -598,6 +762,43 @@
           Run it. The generated prompts aren't perfect, but they're dramatically better than the defaults and they take five minutes to produce.
         </p>
 
+        <div class="prompt-card">
+          <div class="prompt-summary">
+            <strong>What the extraction prompt does:</strong> it asks the LLM to read a chunk and emit a tuple-delimited list — first every entity it finds (name, type, description), then every relationship between those entities (source, target, description, strength score). The output is delimited with <code>&lt;|&gt;</code> separators inside tuples and <code>##</code> between records, terminating with <code>&lt;|COMPLETE|&gt;</code> so the parser knows when generation is done.
+          </div>
+          <details>
+            <summary>View the official prompt (microsoft/graphrag)</summary>
+<pre><code>GRAPH_EXTRACTION_PROMPT = """
+-Goal-
+Given a text document that is potentially relevant to this activity and a list of entity types,
+identify all entities of those types from the text and all relationships among the identified entities.
+
+-Steps-
+1. Identify all entities. For each identified entity, extract the following information:
+- entity_name: Name of the entity, capitalized
+- entity_type: One of the following types: [{entity_types}]
+- entity_description: Comprehensive description of the entity's attributes and activities
+Format each entity as ("entity"&lt;|&gt;&lt;entity_name&gt;&lt;|&gt;&lt;entity_type&gt;&lt;|&gt;&lt;entity_description&gt;)
+
+2. From the entities identified in step 1, identify all pairs of (source_entity, target_entity) that are
+*clearly related* to each other.
+For each pair of related entities, extract the following information:
+- source_entity / target_entity / relationship_description / relationship_strength (numeric)
+Format each relationship as ("relationship"&lt;|&gt;&lt;source&gt;&lt;|&gt;&lt;target&gt;&lt;|&gt;&lt;description&gt;&lt;|&gt;&lt;strength&gt;)
+
+3. Return output in English as a single list of all the entities and relationships
+identified in steps 1 and 2. Use **##** as the list delimiter.
+
+4. When finished, output &lt;|COMPLETE|&gt;
+
+# ... followed by 3 few-shot examples (truncated, see source)
+"""</code></pre>
+            <div class="prompt-source">
+              Source: <a href="https://github.com/microsoft/graphrag/blob/main/packages/graphrag/graphrag/prompts/index/extract_graph.py" target="_blank" rel="noopener">microsoft/graphrag · prompts/index/extract_graph.py →</a>
+            </div>
+          </details>
+        </div>
+
         <h3>Deduplication and entity summarization</h3>
 
         <p>
@@ -607,6 +808,35 @@
         <p>
           The hard limit, and you should know it before deploying anything: <strong>this is not entity resolution.</strong> "Jon" and "Jon Márquez" stay as two distinct nodes. "Acme" and "Acme Corp" stay separate. There is no surface-form linking, no coreference, no embedding-based clustering of entity names. If your corpus has variant spellings of important entities, you will see them as siblings in the graph. Mitigations are post-processing your own coreference pass, normalizing surface forms before extraction, or constraining the few-shot examples to push the LLM toward canonical names. None of them are free.
         </p>
+
+        <div class="prompt-card">
+          <div class="prompt-summary">
+            <strong>What the summarize prompt does:</strong> given one entity (or relationship) and the list of all descriptions extracted for it across chunks, the LLM is told to concatenate them into one coherent third-person paragraph, resolving contradictions, and capped at <code>{max_length}</code> words. It's deliberately tiny — the whole prompt is ~10 lines — because the heavy lifting was already done at extraction time.
+          </div>
+          <details>
+            <summary>View the official prompt (microsoft/graphrag)</summary>
+<pre><code>SUMMARIZE_PROMPT = """
+You are a helpful assistant responsible for generating a comprehensive summary of the data provided below.
+Given one or more entities, and a list of descriptions, all related to the same entity or group of entities.
+Please concatenate all of these into a single, comprehensive description. Make sure to include information
+collected from all the descriptions.
+If the provided descriptions are contradictory, please resolve the contradictions and provide a single,
+coherent summary.
+Make sure it is written in third person, and include the entity names so we have the full context.
+Limit the final description length to {max_length} words.
+
+#######
+-Data-
+Entities: {entity_name}
+Description List: {description_list}
+#######
+Output:
+"""</code></pre>
+            <div class="prompt-source">
+              Source: <a href="https://github.com/microsoft/graphrag/blob/main/packages/graphrag/graphrag/prompts/index/summarize_descriptions.py" target="_blank" rel="noopener">microsoft/graphrag · prompts/index/summarize_descriptions.py →</a>
+            </div>
+          </details>
+        </div>
 
         <h3>Cheap mode</h3>
 
@@ -764,6 +994,44 @@ vector_store/         <span class="tok-c"># embeddings for entities, text_units,
     <span class="tok-c">// 5–10 findings total</span>
   ]
 }</code></pre>
+
+        <div class="prompt-card">
+          <div class="prompt-summary">
+            <strong>What the community report prompt does:</strong> the LLM is cast as an analyst doing "information discovery" on a community. It's given the entities, relationships, and (for non-leaf communities) child reports as CSV, and must return a single JSON object — title, executive summary, 0–10 impact rating + one-sentence justification, and 5–10 findings. Every claim must cite IDs in the form <code>[Data: Entities (5, 7); Relationships (23)]</code>, and unsupported claims are explicitly forbidden.
+          </div>
+          <details>
+            <summary>View the official prompt (microsoft/graphrag)</summary>
+<pre><code>COMMUNITY_REPORT_PROMPT = """
+You are an AI assistant that helps a human analyst to perform general information discovery.
+
+# Goal
+Write a comprehensive report of a community, given a list of entities that belong to the community as
+well as their relationships and optional associated claims. The report will be used to inform
+decision-makers about information associated with the community and their potential impact.
+
+# Report Structure
+- TITLE: community's name (short, specific, names key entities)
+- SUMMARY: executive summary of structure + relationships
+- IMPACT SEVERITY RATING: float 0–10
+- RATING EXPLANATION: single sentence
+- DETAILED FINDINGS: 5–10 insights, each with a summary + grounded explanation
+
+Return output as a well-formed JSON-formatted string with the following format:
+    {{ "title": ..., "summary": ..., "rating": ..., "rating_explanation": ...,
+       "findings": [ {{ "summary": ..., "explanation": ... }}, ... ] }}
+
+# Grounding Rules
+Points supported by data should list their data references as follows:
+"This is an example sentence [Data: Reports (1), Entities (5, 7); Relationships (23); Claims (7, +more)]."
+Do not include information where the supporting evidence for it is not provided.
+
+# ... followed by a full worked example (truncated, see source)
+"""</code></pre>
+            <div class="prompt-source">
+              Source: <a href="https://github.com/microsoft/graphrag/blob/main/packages/graphrag/graphrag/prompts/index/community_report.py" target="_blank" rel="noopener">microsoft/graphrag · prompts/index/community_report.py →</a>
+            </div>
+          </details>
+        </div>
 
         <figure class="wide">
           <div class="diagram">
@@ -1227,6 +1495,10 @@ graphrag index --root ./data</code></pre>
 
         <p>
           If you're starting from zero: read the <a href="https://microsoft.github.io/graphrag/" target="_blank" rel="noopener">Microsoft GraphRAG documentation</a>, run <code>prompt-tune</code> on a sample of your data before you do anything else, and don't ship the default prompts to a domain-specific corpus. Build the smallest possible graph end-to-end, look at the community reports the system produces, and iterate from there. The first reports you read will tell you more about your corpus than any retrieval eval.
+        </p>
+
+        <p>
+          None of this is hypothetical for us. At <a href="https://omundu.ai" target="_blank" rel="noopener">Omundu</a> we build <a href="https://www.omundu.ai/index.php/en/accueil-eng/#solutioneng" target="_blank" rel="noopener">Unity Forge</a>, an agentic AI platform for industrial maintenance — automotive, heavy industry, oil &amp; gas. Our corpora are exactly the kind GraphRAG was built for: tangled manuals, schematics, GMAO records, and 3D plans, where a technician's question almost never has its answer in a single chunk. <strong>Multimodal GraphRAG</strong> — graphs over text, images, and structured data together — is what we're working on next. If that's your problem too, let's talk.
         </p>
 
         <div class="footer">
