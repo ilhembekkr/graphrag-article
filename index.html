@@ -3,11 +3,87 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GraphRAG — A technical deep dive</title>
+    <title>GraphRAG: A Technical Deep Dive into Graph-Augmented Retrieval</title>
+    <meta name="description" content="GraphRAG explained for engineers: entity extraction, knowledge graphs, Leiden communities, community reports, local vs. global search, and production tradeoffs." />
+    <meta name="author" content="Ilhem Bekkar" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://ilhembekkr.github.io/graphrag-article/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="GraphRAG: A Technical Deep Dive into Graph-Augmented Retrieval" />
+    <meta property="og:description" content="How GraphRAG turns cross-corpus synthesis into a retrieval problem: extraction, hierarchical Leiden, community reports, local and global search, and what it costs in production." />
+    <meta property="og:url" content="https://ilhembekkr.github.io/graphrag-article/" />
+    <meta property="og:image" content="https://ilhembekkr.github.io/graphrag-article/images/vector-rag-nearest-cluster-retrieval.png" />
+    <meta property="og:image:width" content="1472" />
+    <meta property="og:image:height" content="822" />
+    <meta property="og:image:alt" content="Vector RAG retrieves only the nearest cluster in vector space, missing the rest of the corpus." />
+    <meta property="article:published_time" content="2026-05-21" />
+    <meta property="article:modified_time" content="2026-06-01" />
+    <meta property="article:author" content="https://www.linkedin.com/in/ilhem-bekkar-8927a11b2/" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="GraphRAG: A Technical Deep Dive into Graph-Augmented Retrieval" />
+    <meta name="twitter:description" content="How GraphRAG turns cross-corpus synthesis into a retrieval problem: extraction, hierarchical Leiden, community reports, local and global search, and production costs." />
+    <meta name="twitter:image" content="https://ilhembekkr.github.io/graphrag-article/images/vector-rag-nearest-cluster-retrieval.png" />
+    <meta name="twitter:image:alt" content="Vector RAG retrieves only the nearest cluster in vector space, missing the rest of the corpus." />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "GraphRAG: a technical deep dive into graph-augmented retrieval",
+        "description": "GraphRAG explained for engineers: entity extraction, knowledge graphs, Leiden communities, community reports, local vs. global search, and production tradeoffs.",
+        "url": "https://ilhembekkr.github.io/graphrag-article/",
+        "mainEntityOfPage": {
+          "@type": "WebPage",
+          "@id": "https://ilhembekkr.github.io/graphrag-article/"
+        },
+        "image": {
+          "@type": "ImageObject",
+          "url": "https://ilhembekkr.github.io/graphrag-article/images/vector-rag-nearest-cluster-retrieval.png",
+          "width": 1472,
+          "height": 822
+        },
+        "datePublished": "2026-05-21",
+        "dateModified": "2026-06-01",
+        "inLanguage": "en",
+        "author": {
+          "@type": "Person",
+          "name": "Ilhem Bekkar",
+          "url": "https://www.linkedin.com/in/ilhem-bekkar-8927a11b2/",
+          "jobTitle": "Agentic AI Engineer",
+          "worksFor": [
+            { "@type": "Organization", "name": "Omundu", "url": "https://omundu.ai" },
+            { "@type": "Organization", "name": "LIRIS" }
+          ],
+          "sameAs": ["https://www.linkedin.com/in/ilhem-bekkar-8927a11b2/"]
+        },
+        "about": [
+          { "@type": "Thing", "name": "GraphRAG" },
+          { "@type": "Thing", "name": "Retrieval-augmented generation" },
+          { "@type": "Thing", "name": "Knowledge graph" }
+        ],
+        "citation": [
+          {
+            "@type": "ScholarlyArticle",
+            "name": "From Local to Global: A Graph RAG Approach to Query-Focused Summarization",
+            "url": "https://arxiv.org/abs/2404.16130"
+          },
+          {
+            "@type": "ScholarlyArticle",
+            "name": "From Louvain to Leiden: guaranteeing well-connected communities",
+            "url": "https://www.nature.com/articles/s41598-019-41695-z"
+          }
+        ]
+      }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
       rel="stylesheet"
     />
     <style>
@@ -16,7 +92,7 @@
         --bg-soft: #f8fafc;
         --text: #0f172a;
         --text-muted: #475569;
-        --text-faint: #94a3b8;
+        --text-faint: #64748b; /* ≥4.5:1 on --bg and --bg-soft */
         --accent: #2563eb;
         --accent-light: #eff6ff;
         --accent-dark: #1d4ed8;
@@ -30,10 +106,32 @@
         --danger-light: #fef2f2;
         --warning: #d97706;
         --warning-light: #fffbeb;
+        /* darker shades for small label text on the light callout backgrounds */
+        --success-text: #15803d;
+        --danger-text: #b91c1c;
+        --warning-text: #b45309;
+        --focus: #2563eb;
       }
 
       * { box-sizing: border-box; }
-      html { scroll-behavior: smooth; }
+      @media (prefers-reduced-motion: no-preference) {
+        html { scroll-behavior: smooth; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { transition: none !important; animation: none !important; }
+      }
+      :focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+        border-radius: 3px;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px; height: 1px;
+        padding: 0; margin: -1px;
+        overflow: hidden; clip: rect(0 0 0 0);
+        white-space: nowrap; border: 0;
+      }
       body {
         margin: 0;
         background: var(--bg);
@@ -41,6 +139,7 @@
         font-family: "Inter", system-ui, -apple-system, sans-serif;
         font-size: 18px;
         line-height: 1.7;
+        overflow-wrap: break-word;
         -webkit-font-smoothing: antialiased;
       }
 
@@ -257,6 +356,31 @@
       }
       .prompt-card details[open] > summary::before { transform: rotate(90deg); }
       .prompt-card details pre { margin: 14px 0 10px; font-size: 0.78rem; }
+
+      .faq { margin: 24px 0; border-top: 1px solid var(--border); }
+      .faq-item { border-bottom: 1px solid var(--border); }
+      .faq-item > summary {
+        cursor: pointer;
+        list-style: none;
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        padding: 16px 4px;
+        user-select: none;
+      }
+      .faq-item > summary::-webkit-details-marker { display: none; }
+      .faq-item > summary::before {
+        content: "▸";
+        color: var(--accent);
+        font-size: 0.85em;
+        transition: transform 0.15s ease;
+        display: inline-block;
+        flex: none;
+      }
+      .faq-item[open] > summary::before { transform: rotate(90deg); }
+      .faq-item > summary:hover h3 { color: var(--accent); }
+      .faq-item > summary h3 { margin: 0; font-size: 1.05rem; line-height: 1.4; }
+      .faq-item > p, .faq-item > ul { margin: 0 0 18px 26px; }
       .prompt-source {
         font-size: 0.82rem;
         color: var(--text-faint);
@@ -291,10 +415,11 @@
         display: block;
         margin-bottom: 6px;
       }
-      .callout.warn > .label { color: var(--warning); }
-      .callout.danger > .label { color: var(--danger); }
-      .callout.ok > .label { color: var(--success); }
+      .callout.warn > .label { color: var(--warning-text); }
+      .callout.danger > .label { color: var(--danger-text); }
+      .callout.ok > .label { color: var(--success-text); }
       .callout p:last-child { margin-bottom: 0; }
+      .callout > h2.label { margin: 0 0 6px; line-height: inherit; }
 
       /* tables */
       .table-wrap {
@@ -322,7 +447,17 @@
         letter-spacing: 0.05em;
         color: var(--text-muted);
       }
-      tr:last-child td { border-bottom: none; }
+      /* row headers keep the look of a bold body cell */
+      tbody th {
+        background: none;
+        font-size: inherit;
+        text-transform: none;
+        letter-spacing: normal;
+        font-weight: inherit;
+        color: var(--text);
+      }
+      thead td { background: var(--bg-soft); }
+      tr:last-child td, tr:last-child th { border-bottom: none; }
 
       /* figures */
       figure { margin: 36px 0; }
@@ -423,6 +558,14 @@
         h2 { font-size: 1.5rem; }
         h3 { font-size: 1.15rem; }
         pre { font-size: 0.78rem; }
+        /* keep tables and diagrams legible: scroll sideways instead of crushing */
+        .table-wrap table { min-width: 560px; }
+        .diagram { padding: 12px; overflow-x: auto; }
+        .diagram svg { min-width: 760px; }
+        .diagram svg[viewBox="0 0 1100 560"] { min-width: 880px; }
+      }
+      @media (max-width: 420px) {
+        .footer-author { flex-direction: column; align-items: flex-start; }
       }
     </style>
   </head>
@@ -430,6 +573,7 @@
     <main class="page">
       <article class="article">
 
+        <header>
         <div class="eyebrow">Retrieval &nbsp;·&nbsp; Knowledge graphs &nbsp;·&nbsp; LLMs</div>
         <h1 class="title">GraphRAG: a technical deep dive into graph-augmented retrieval</h1>
         <p class="dek">
@@ -437,7 +581,7 @@
         </p>
 
         <div class="byline">
-          <img class="byline-avatar" src="images/ilhem.png" alt="Ilhem Bekkar" />
+          <img class="byline-avatar" src="images/ilhem-bekkar.jpg" alt="Portrait of Ilhem Bekkar" width="56" height="56" />
           <div class="byline-text">
             <div class="byline-name">
               Ilhem Bekkar
@@ -459,12 +603,25 @@
         </div>
 
         <div class="meta">
-          <span>~22 min read</span>
-          <span class="dot">·</span>
+          <time datetime="2026-05-21">May 21, 2026</time>
+          <span class="dot" aria-hidden="true">·</span>
+          <span>~25 min read</span>
+          <span class="dot" aria-hidden="true">·</span>
           <span>Engineering deep dive</span>
         </div>
+        </header>
 
-        <nav class="toc">
+        <section class="callout" aria-labelledby="what-is-graphrag">
+          <h2 class="label" id="what-is-graphrag">What is GraphRAG?</h2>
+          <p>
+            <strong>GraphRAG</strong> is a retrieval-augmented generation (RAG) technique that turns a document corpus into a <strong>knowledge graph</strong> before any question is asked. An LLM reads every chunk and extracts entities (people, systems, concepts) and the <strong>relationships</strong> between them. A community-detection algorithm groups densely connected entities into nested communities, and the LLM writes a <strong>community summary</strong> for each one. At query time, <strong>retrieval</strong> runs over that structure rather than raw chunks alone: walk an entity's neighborhood for specific questions, or map-reduce over community summaries for corpus-wide ones. The result is handed to an <strong>LLM</strong> to write a grounded answer.
+          </p>
+          <p>
+            The approach comes from Microsoft Research (<a href="https://arxiv.org/abs/2404.16130" target="_blank" rel="noopener">Edge et al., 2024</a>); this article follows their open-source implementation, <a href="https://github.com/microsoft/graphrag" target="_blank" rel="noopener">microsoft/graphrag</a>.
+          </p>
+        </section>
+
+        <nav class="toc" aria-label="Table of contents">
           <div class="toc-label">Contents</div>
           <ol>
             <li><a href="#problem">The problem with vector RAG</a></li>
@@ -478,9 +635,11 @@
             <li><a href="#routing">Query modes and agentic routing</a></li>
             <li><a href="#production">Production concerns</a></li>
             <li><a href="#close">Mental model and closing</a></li>
+            <li><a href="#faq">Frequently asked questions</a></li>
           </ol>
         </nav>
 
+        <section aria-labelledby="problem">
         <h2 id="problem">1. The problem with vector RAG</h2>
 
         <p>
@@ -503,32 +662,34 @@
         </p>
 
         <figure class="wide">
-          <img src="images/main-1.png" alt="Vector RAG retrieves only the nearest cluster in vector space, missing the rest of the corpus." />
+          <img src="images/vector-rag-nearest-cluster-retrieval.png" alt="Vector RAG retrieves only the nearest cluster in vector space, missing the rest of the corpus." width="1472" height="822" loading="lazy" decoding="async" />
           <figcaption>Vector RAG returns the nearest 2–3 chunks. Theme questions need coverage across clusters; the retrieval sees one.</figcaption>
         </figure>
 
         <p>
-          This isn't a tuning problem. You can't fix it with a better embedding model or a larger <code>k</code>. The retrieval primitive — point-wise similarity over chunks — has no mechanism for synthesis. Synthesis is what the LLM is supposed to do at the end of the pipeline, but you can't synthesize what was never retrieved.
+          This isn't a tuning problem. You can't reliably fix it with a better embedding model or a larger <code>k</code>: raising <code>k</code> buys coverage linearly in context tokens, and it's still biased toward chunks that resemble the question. The retrieval primitive — point-wise similarity over chunks — has no mechanism for synthesis. Synthesis is what the LLM is supposed to do at the end of the pipeline, but you can't synthesize what was never retrieved.
         </p>
 
         <p>
-          <strong>Do the structural work at indexing time.</strong> Extract entities and relationships, build a graph, partition it into communities, and have an LLM summarize each community before any query arrives. Now there are two retrieval primitives instead of one: walk the graph from a starting entity, or fan out across pre-written community summaries. Synthesis becomes retrieval over summaries — a thing vector RAG can't do because it has no summaries to retrieve.
+          <strong>Do the structural work at indexing time.</strong> Extract entities and relationships, build a graph, partition it into communities, and have an LLM summarize each community before any query arrives. Now there are two retrieval primitives instead of one: walk the graph from a starting entity, or fan out across pre-written community summaries. Synthesis becomes retrieval over summaries — a thing plain top-k vector RAG can't do because it has no summaries to retrieve.
         </p>
 
+        </section>
+        <section aria-labelledby="pipeline">
         <h2 id="pipeline">2. The GraphRAG pipeline at a glance</h2>
 
         <p>Four steps. Each one is load-bearing.</p>
 
         <ol>
-          <li><strong>Entity &amp; relationship extraction.</strong> One LLM call per text chunk produces structured tuples — entities with descriptions and typed relationships with strength scores.</li>
+          <li><strong>Entity &amp; relationship extraction.</strong> One extraction call per text chunk (plus one "gleaning" follow-up call by default) produces structured tuples — entities with descriptions and typed relationships with strength scores.</li>
           <li><strong>Graph construction.</strong> Entities become nodes, relationships become edges. Edge weights are the sum of LLM-assigned strengths, not co-occurrence counts.</li>
           <li><strong>Hierarchical community detection.</strong> The Leiden algorithm partitions the graph recursively into multi-level clusters. Each level trades granularity for cost.</li>
           <li><strong>Community summarization.</strong> An LLM writes a structured report for every community at every level. These reports are the artifact global search consumes — pre-computed reasoning, persisted to disk.</li>
         </ol>
 
         <figure class="wide">
-          <div class="diagram">
-            <svg viewBox="0 0 1100 560" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,system-ui,sans-serif; display:block; width:100%; height:auto;" aria-label="GraphRAG pipeline: six build-time stages produce the graph and summaries; two runtime engines consume them.">
+          <div class="diagram" role="region" tabindex="0" aria-label="Pipeline diagram">
+            <svg viewBox="0 0 1100 560" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,system-ui,sans-serif; display:block; width:100%; height:auto;" role="img" aria-label="GraphRAG pipeline: six build-time stages produce the graph and summaries; two runtime engines consume them.">
               <defs>
                 <marker id="art-pv-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
@@ -540,7 +701,7 @@
 
               <!-- BAND 1: BUILD TIME -->
               <text x="12" y="16" font-size="13" font-weight="600" fill="#475569" letter-spacing="1.5" style="text-transform:uppercase;">§ Build time · indexing</text>
-              <text x="1088" y="16" font-size="13" fill="#94a3b8" text-anchor="end">run once · expensive</text>
+              <text x="1088" y="16" font-size="13" fill="#64748b" text-anchor="end">run once · expensive</text>
 
               <g filter="url(#art-pv-shadow)">
                 <rect x="30" y="40" width="145" height="70" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2"/>
@@ -549,7 +710,7 @@
                 <text x="102" y="78" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Chunk</text>
                 <text x="102" y="96" text-anchor="middle" font-size="13" fill="#475569">token splits</text>
               </g>
-              <text x="102" y="132" text-anchor="middle" font-size="13" fill="#94a3b8">CPU · 0%</text>
+              <text x="102" y="132" text-anchor="middle" font-size="13" fill="#64748b">CPU · 0%</text>
 
               <g filter="url(#art-pv-shadow)">
                 <rect x="192" y="40" width="145" height="70" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
@@ -576,7 +737,7 @@
                 <text x="588" y="78" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Detect</text>
                 <text x="588" y="96" text-anchor="middle" font-size="13" fill="#475569">hierarchical clusters</text>
               </g>
-              <text x="588" y="132" text-anchor="middle" font-size="13" fill="#94a3b8">CPU · 0%</text>
+              <text x="588" y="132" text-anchor="middle" font-size="13" fill="#64748b">CPU · 0%</text>
 
               <g filter="url(#art-pv-shadow)">
                 <rect x="678" y="40" width="145" height="70" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.2"/>
@@ -609,14 +770,14 @@
                 <rect x="270" y="218" width="560" height="92" rx="12" fill="#fff" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6 4"/>
                 <text x="550" y="250" text-anchor="middle" font-size="17" font-weight="700" fill="#0f172a">Knowledge graph + community reports + embeddings</text>
                 <text x="550" y="274" text-anchor="middle" font-size="13" font-style="italic" fill="#475569">persisted to parquet / vector store · read at query time</text>
-                <text x="550" y="296" text-anchor="middle" font-size="13" fill="#94a3b8">entities · relationships · communities · reports · text-unit embeddings</text>
+                <text x="550" y="296" text-anchor="middle" font-size="13" fill="#64748b">entities · relationships · communities · reports · text-unit embeddings</text>
               </g>
 
               <line x1="550" y1="318" x2="550" y2="362" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#art-pv-arrow)"/>
 
               <!-- BAND 3: QUERY TIME -->
               <text x="12" y="358" font-size="13" font-weight="600" fill="#475569" letter-spacing="1.5" style="text-transform:uppercase;">§ Query time · two engines</text>
-              <text x="1088" y="358" font-size="13" fill="#94a3b8" text-anchor="end">per query · cheap</text>
+              <text x="1088" y="358" font-size="13" fill="#64748b" text-anchor="end">per query · cheap</text>
 
               <g filter="url(#art-pv-shadow)">
                 <rect x="30" y="438" width="140" height="44" rx="22" fill="#fff" stroke="#94a3b8" stroke-width="1.2"/>
@@ -630,39 +791,51 @@
                 <rect x="240" y="380" width="850" height="72" rx="10" fill="#fff" stroke="#cbd5e1" stroke-width="1.2"/>
                 <text x="260" y="408" font-size="17" font-weight="700" fill="#0f172a">Local · graph walk</text>
                 <text x="260" y="430" font-size="14" fill="#475569">seed entities (embed sim) → fan out to neighborhood → pack entities + rels + chunks + reports → LLM</text>
-                <text x="260" y="446" font-size="12.5" font-style="italic" fill="#94a3b8">good for: specific facts · "what does module X depend on?"</text>
+                <text x="260" y="446" font-size="12.5" font-style="italic" fill="#64748b">good for: specific facts · "what does module X depend on?"</text>
               </g>
 
               <g filter="url(#art-pv-shadow)">
                 <rect x="240" y="468" width="850" height="72" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
                 <text x="260" y="496" font-size="17" font-weight="700" fill="#0f172a">Global · map-reduce</text>
                 <text x="260" y="518" font-size="14" fill="#475569">shuffle community reports → map: LLM extracts key points in parallel → reduce: LLM aggregates → answer</text>
-                <text x="260" y="534" font-size="12.5" font-style="italic" fill="#94a3b8">good for: themes &amp; synthesis · "recurring risks across 200 reports?"</text>
+                <text x="260" y="534" font-size="12.5" font-style="italic" fill="#64748b">good for: themes &amp; synthesis · "recurring risks across 200 reports?"</text>
               </g>
             </svg>
           </div>
-          <figcaption>The pipeline. Build time produces a graph and a tree of community summaries. Query time uses two engines on top: local (walk the graph) and global (map-reduce over summaries).</figcaption>
+          <figcaption>The pipeline. Build time produces a graph and a tree of community summaries. Query time uses two engines on top: local (walk the graph) and global (map-reduce over summaries); DRIFT and basic search are covered in §9. Cost shares: the ~75% for graph extraction is Microsoft's own estimate; the split of the remainder is illustrative and varies by corpus.</figcaption>
         </figure>
 
         <p>
           The split that matters is <strong>build-time vs query-time</strong>. Vector RAG does almost nothing at indexing — it embeds and stores. Querying is where all the work happens, and the LLM has to do every bit of reasoning from scratch on context that was retrieved by similarity alone. GraphRAG pushes the work the other way. Indexing is expensive: hundreds to thousands of LLM calls before a user has asked anything. In exchange, query time inherits a graph and a hierarchy of human-readable summaries the LLM can lean on.
         </p>
 
-        <div class="table-wrap">
+        <div class="callout">
+          <span class="label">Version context</span>
+          <p>Defaults, CLI commands, and table schemas in this article were checked against <a href="https://github.com/microsoft/graphrag" target="_blank" rel="noopener">microsoft/graphrag</a> <strong>v3.3.0</strong> (October 2026). GraphRAG's config keys, output schemas, and CLI have changed across major versions (0.x → 1.x → 2.x → 3.x), so check <code>config/defaults.py</code> and <code>breaking-changes.md</code> in the repo for the version you run.</p>
+        </div>
+
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Comparison: vector RAG vs GraphRAG">
           <table>
             <thead>
-              <tr><th>&nbsp;</th><th>Vector RAG</th><th>GraphRAG</th></tr>
+              <tr><td></td><th scope="col">Vector RAG</th><th scope="col">GraphRAG</th></tr>
             </thead>
             <tbody>
-              <tr><td><strong>Retrieval</strong></td><td>Top-k chunk similarity</td><td>Graph traversal + community summaries</td></tr>
-              <tr><td><strong>Good at</strong></td><td>Specific, localized facts</td><td>Specific facts <em>and</em> cross-corpus synthesis</td></tr>
-              <tr><td><strong>Fails at</strong></td><td>"Themes across", "recurring", "compare"</td><td>Nothing fundamental — cost/latency tradeoffs</td></tr>
-              <tr><td><strong>Indexing cost</strong></td><td>Low (embed + store)</td><td>High (1 LLM call per chunk + per community)</td></tr>
-              <tr><td><strong>Query latency</strong></td><td>~1s</td><td>Local 1–2s, global 5–15s, drift 10–30s</td></tr>
-              <tr><td><strong>Freshness</strong></td><td>Append a chunk and you're done</td><td>Re-index to keep communities coherent</td></tr>
+              <tr><th scope="row"><strong>Retrieval</strong></th><td>Top-k chunk similarity</td><td>Graph traversal + community summaries</td></tr>
+              <tr><th scope="row"><strong>Good at</strong></th><td>Specific, localized facts</td><td>Specific facts <em>and</em> cross-corpus synthesis</td></tr>
+              <tr><th scope="row"><strong>Weak at</strong></th><td>"Themes across", "recurring", "compare"</td><td>Entity-resolution errors, stale summaries, cost/latency tradeoffs</td></tr>
+              <tr><th scope="row"><strong>Indexing cost</strong></th><td>Low (embed + store)</td><td>High (~2 LLM calls per chunk with default gleaning, + description summaries, + 1 per community)</td></tr>
+              <tr><th scope="row"><strong>Query latency*</strong></th><td>~1s</td><td>Local 1–2s, global 5–15s, drift 10–30s</td></tr>
+              <tr><th scope="row"><strong>Provenance</strong></th><td>Chunk-level: document IDs, metadata, chunk citations</td><td>Chunk-level, plus entity/relationship/community IDs to explore evidence through relationships</td></tr>
+              <tr><th scope="row"><strong>Freshness</strong></th><td>Append a chunk and you're done</td><td><code>graphrag update</code> appends new data; existing communities aren't re-clustered, so a periodic full re-index is still needed</td></tr>
             </tbody>
           </table>
         </div>
+
+        </section>
+        <section aria-labelledby="chunking">
+        <p style="font-size:0.9em; color:var(--text-muted);">
+          * Latencies are illustrative orders of magnitude from our deployments, not benchmarks. They depend heavily on the model, corpus size, community level, and request concurrency.
+        </p>
 
         <h2 id="chunking">3. Chunking: the most underrated knob</h2>
 
@@ -671,47 +844,50 @@
         </p>
 
         <p>
-          The default scheme is unglamorous: fixed-size token windows with overlap. Microsoft's reference implementation ships with 1200 tokens per chunk and 100 tokens of overlap, splitting on token count (not sentences or paragraphs). Chunks carry their metadata forward so extraction prompts can see what document they came from.
+          The default scheme is unglamorous: fixed-size token windows with overlap. Microsoft's reference implementation ships with 1200 tokens per chunk and 100 tokens of overlap, splitting on token count (not sentences or paragraphs). Every chunk keeps its <code>document_id</code>. If you want the extraction prompt to see document fields such as the title, enable <code>chunking.prepend_metadata</code>; it's off by default.
         </p>
 
         <figure class="wide">
-          <img src="images/chunks-1.png" alt="A document is split into 1200-token TextUnits with 100-token overlap; each unit feeds the extraction step." />
+          <img src="images/graphrag-token-chunking-textunits.png" alt="A document is split into 1200-token TextUnits with 100-token overlap; each unit feeds the extraction step." width="1472" height="884" loading="lazy" decoding="async" />
           <figcaption>Token-based fixed-size chunking. Each TextUnit becomes the input to one extraction call.</figcaption>
         </figure>
 
         <p>
-          Size is a cost decision and a quality decision, and the two pull opposite ways.
+          Size is a cost decision and a quality decision, and the two pull opposite ways. The table below is a rule of thumb from our own experience, not a benchmark.
         </p>
 
-        <div class="table-wrap">
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Chunk size tradeoffs">
           <table>
             <thead>
-              <tr><th>Chunk size</th><th>Extraction quality</th><th>Cost</th><th>When to pick it</th></tr>
+              <tr><th scope="col">Chunk size</th><th scope="col">Extraction quality</th><th scope="col">Cost</th><th scope="col">When to pick it</th></tr>
             </thead>
             <tbody>
-              <tr><td><strong>~300 tokens</strong></td><td>Very high precision; misses cross-paragraph relations</td><td>Very high</td><td>Fine-grained provenance, regulated content</td></tr>
-              <tr><td><strong>~1200 tokens</strong> (default)</td><td>Catches cross-paragraph context; good balance</td><td>Moderate</td><td>General purpose — start here</td></tr>
-              <tr><td><strong>2000+ tokens</strong></td><td>Loses fine-grained entities</td><td>Low</td><td>Cost-sensitive analysis over coarse documents</td></tr>
+              <tr><th scope="row"><strong>~300 tokens</strong></th><td>Very high precision; misses cross-paragraph relations</td><td>Very high</td><td>Fine-grained provenance, regulated content</td></tr>
+              <tr><th scope="row"><strong>~1200 tokens</strong> (default)</th><td>Catches cross-paragraph context; good balance</td><td>Moderate</td><td>General purpose — start here</td></tr>
+              <tr><th scope="row"><strong>2000+ tokens</strong></th><td>Loses fine-grained entities</td><td>Low</td><td>Cost-sensitive analysis over coarse documents</td></tr>
             </tbody>
           </table>
         </div>
 
         <p>
-          The cost lever is large. A 26,000-word document at 300-token chunks generates around 260 extraction calls. At 1200 tokens, the same document is ~26 calls. Same model, same prompt — a 10× difference, before you've considered summarization or embeddings.
+          The cost lever is large. A 26,000-word English document is roughly 35,000 tokens (at ~1.33 tokens per word). With 100-token overlap the window advances 1,100 tokens per chunk at size 1200, giving ~32 chunks. At size 300 it advances only 200, giving ~173 chunks. That's about 5× more extraction calls with the same model and prompt, before gleaning (which doubles both counts), summarization, or embeddings. Token spend grows less than the call count, because the ~1,800-token instruction-and-examples part of the prompt is resent on every call: about 2,100 vs 3,000 input tokens per call, or roughly 3.8× more input tokens overall.
         </p>
 
         <div class="callout warn">
           <span class="label">Watch out</span>
-          <p>Smaller chunks aren't strictly better even at infinite budget. Below ~300 tokens the extractor frequently sees only one side of a relationship and produces dangling entities. Shrinking past the point where context spans the chunk boundary actively hurts the graph.</p>
+          <p>Smaller chunks aren't strictly better even at infinite budget. In our experience, below ~300 tokens the LLM extractor frequently sees only one side of a relationship and produces dangling entities. Shrinking past the point where context spans the chunk boundary actively hurts the graph. (The NLP "fast" method below is the exception: Microsoft recommends 50–100-token chunks there, because its edges come from co-occurrence, not from LLM-described relationships.)</p>
         </div>
 
+        </section>
+        <section aria-labelledby="extraction">
         <h2 id="extraction">4. Entity and relationship extraction</h2>
 
         <p>
-          For each chunk, GraphRAG makes one LLM call with a prompt that asks for two lists: entities and the relationships between them. The output isn't free-form prose — it's structured tuples the indexer can parse and merge.
+          For each chunk, GraphRAG makes one extraction call (plus, by default, one gleaning follow-up, covered below) with a prompt that asks for two lists: entities and the relationships between them. The output isn't free-form prose — it's structured tuples the indexer can parse and merge.
         </p>
 
-        <pre><code><span class="tok-c"># entity tuple</span>
+        <pre tabindex="0"><code><span class="tok-c"># schematic: the real prompt delimits fields with &lt;|&gt; and records with ##</span>
+<span class="tok-c"># entity tuple</span>
 (<span class="tok-s">"entity"</span> | <span class="tok-n">ENTITY_NAME</span> | <span class="tok-n">ENTITY_TYPE</span> | <span class="tok-s">"description"</span>)
 
 <span class="tok-c"># relationship tuple</span>
@@ -724,7 +900,7 @@
 </code></pre>
 
         <p>
-          The <strong>description</strong> field, on both entities and relationships, is the part that distinguishes GraphRAG from generic information-extraction pipelines. The graph isn't built from labels alone. Each node carries a paragraph of grounded prose pulled directly from the chunk it appeared in, and each edge carries an explanation of why the two endpoints are related. Local search later concatenates those descriptions into the LLM's context window — they are the "retrieved text" of GraphRAG.
+          The <strong>description</strong> field, on both entities and relationships, is the part that distinguishes GraphRAG from generic information-extraction pipelines. The graph isn't built from labels alone. Each node carries a paragraph of LLM-written prose grounded in the chunk it appeared in, and each edge carries an explanation of why the two endpoints are related. Local search later concatenates those descriptions into the LLM's context window — they are the "retrieved text" of GraphRAG.
         </p>
 
         <p>
@@ -732,7 +908,7 @@
         </p>
 
         <figure class="wide">
-          <img src="images/extract-1.png" alt="One chunk is processed by an extraction prompt into entity and relationship tuples, then deduplicated and summarized." />
+          <img src="images/graphrag-entity-relationship-extraction.png" alt="One chunk is processed by an extraction prompt into entity and relationship tuples, then deduplicated and summarized." width="1472" height="1260" loading="lazy" decoding="async" />
           <figcaption>One LLM call per chunk produces structured tuples. Deduplication and summarization fold duplicates into a single canonical entity.</figcaption>
         </figure>
 
@@ -744,7 +920,7 @@
           <li><strong>Instructions</strong> — how to extract, what shape the output must take.</li>
           <li><strong>Few-shot examples</strong> — about 15 entities and 12 relationships, restricted to Geo, Person, Event, and Organization in the default ship.</li>
           <li><strong>The chunk itself.</strong></li>
-          <li><strong>Gleanings</strong> — a multi-turn loop that asks the model whether it missed anything on the first pass. Cheap pass, often worth it.</li>
+          <li><strong>Gleanings</strong> — a multi-turn loop that asks the model whether it missed anything on the first pass. On by default (<code>extract_graph.max_gleanings: 1</code>). It isn't free: each gleaning call resends the prompt, the chunk, and the first answer, so it roughly doubles extraction calls. It's often worth it, but it's the first knob to try when cutting cost.</li>
         </ol>
 
         <div class="callout warn">
@@ -756,7 +932,7 @@
           For an agentic-AI codebase, sensible types are <code>Function</code>, <code>Module</code>, <code>API</code>, <code>DataSource</code>, <code>Agent</code>, <code>Tool</code>, <code>Prompt</code>, <code>Risk</code>. For clinical notes you want <code>Symptom</code>, <code>Medication</code>, <code>Procedure</code>, <code>Condition</code>. The CLI ships a generator that takes a sample of your corpus and produces a domain-specific persona and example set:
         </p>
 
-        <pre><code>graphrag prompt-tune --root ./data --domain <span class="tok-s">"clinical-trial-reports"</span></code></pre>
+        <pre tabindex="0"><code>graphrag prompt-tune --root ./data --domain <span class="tok-s">"clinical-trial-reports"</span></code></pre>
 
         <p>
           Run it. The generated prompts aren't perfect, but they're dramatically better than the defaults and they take five minutes to produce.
@@ -768,7 +944,7 @@
           </div>
           <details>
             <summary>View the official prompt (microsoft/graphrag)</summary>
-<pre><code>GRAPH_EXTRACTION_PROMPT = """
+<pre tabindex="0"><code>GRAPH_EXTRACTION_PROMPT = """
 -Goal-
 Given a text document that is potentially relevant to this activity and a list of entity types,
 identify all entities of those types from the text and all relationships among the identified entities.
@@ -815,7 +991,7 @@ identified in steps 1 and 2. Use **##** as the list delimiter.
           </div>
           <details>
             <summary>View the official prompt (microsoft/graphrag)</summary>
-<pre><code>SUMMARIZE_PROMPT = """
+<pre tabindex="0"><code>SUMMARIZE_PROMPT = """
 You are a helpful assistant responsible for generating a comprehensive summary of the data provided below.
 Given one or more entities, and a list of descriptions, all related to the same entity or group of entities.
 Please concatenate all of these into a single, comprehensive description. Make sure to include information
@@ -838,12 +1014,14 @@ Output:
           </details>
         </div>
 
-        <h3>Cheap mode</h3>
+        <h3 id="cheap-mode">Cheap mode: NLP extraction instead of an LLM</h3>
 
         <p>
-          There is a "fast" indexing path that swaps the LLM extractor for NLTK/spaCy noun-phrase extraction plus co-occurrence edges. Chunks shrink to 50–100 tokens. Cost drops by an order of magnitude or more, descriptions effectively vanish, and community summaries get noticeably thinner. Useful for evaluation, prototyping, or domains where you only need a graph skeleton. Don't ship it as your main retrieval path.
+          There is a "fast" indexing path (<code>graphrag index --method fast</code>) that swaps the LLM extractor for NLTK/spaCy noun-phrase extraction plus co-occurrence edges. Microsoft recommends shrinking chunks to 50–100 tokens for it. Entities and edges carry no descriptions. Community reports are still LLM-written, but from the raw text units rather than entity descriptions. The saving is bounded: Microsoft estimates graph extraction at roughly 75% of standard indexing cost, and fast mode still pays for report generation and embeddings. The tradeoff is a noisier graph. Microsoft positions it as a good fit when the workload is mainly global/summary questions. It's a poor fit when you need high-fidelity entities for local search or graph exploration.
         </p>
 
+        </section>
+        <section aria-labelledby="graph">
         <h2 id="graph">5. The knowledge graph and hierarchical Leiden</h2>
 
         <p>
@@ -851,8 +1029,8 @@ Output:
         </p>
 
         <figure class="wide">
-          <div class="diagram">
-            <svg viewBox="0 0 920 380" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;">
+          <div class="diagram" role="region" tabindex="0" aria-label="Knowledge graph diagram">
+            <svg viewBox="0 0 920 380" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;" role="img" aria-label="Example knowledge graph with three Leiden communities — startup funding, semiconductor, green energy — joined by cross-community links.">
               <!-- Community A: startup funding (purple) -->
               <!-- in-community edges -->
               <line x1="170" y1="120" x2="280" y2="80"  stroke="#a78bfa" stroke-width="3"   opacity="0.7"/>
@@ -924,52 +1102,54 @@ Output:
         </figure>
 
         <p>
-          GraphRAG runs <strong>hierarchical Leiden</strong> on this graph. Leiden is a community-detection algorithm in the modularity family (<a href="https://www.nature.com/articles/s41598-019-41695-z" target="_blank" rel="noopener">Traag, Waltman &amp; van Eck, 2019</a>); the "hierarchical" part means it applies recursively, splitting each community further until a size threshold is hit. The output is a tree of partitions at successive levels of resolution.
+          GraphRAG runs <strong>hierarchical Leiden</strong> on this graph. Leiden is a community-detection algorithm in the modularity family (<a href="https://www.nature.com/articles/s41598-019-41695-z" target="_blank" rel="noopener">Traag, Waltman &amp; van Eck, 2019</a>); the "hierarchical" part means it applies recursively, splitting each community further until it is at or below a size threshold (<code>cluster_graph.max_cluster_size</code>, default 10 entities). By default (<code>use_lcc: true</code>) clustering runs only on the graph's largest connected component, so entities in small disconnected islands get no community. The output is a tree of partitions at successive levels of resolution.
         </p>
 
         <p>
-          The level number matters because it directly controls the cost and granularity of global search later. Level 0 is the coarsest partition — maybe ten communities covering the entire corpus. Level 2+ can produce thousands.
+          The level number matters because it directly controls the cost and granularity of global search later. Level 0 is the coarsest partition — maybe ten communities covering the entire corpus. Level 2+ can produce thousands. The counts below are illustrative. Real numbers depend on graph size, connectivity, and <code>max_cluster_size</code>.
         </p>
 
-        <div class="table-wrap">
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Leiden hierarchy levels">
           <table>
             <thead>
-              <tr><th>Level</th><th>Granularity</th><th>~ # communities</th><th>Use</th></tr>
+              <tr><th scope="col">Level</th><th scope="col">Granularity</th><th scope="col">~ # communities</th><th scope="col">Use</th></tr>
             </thead>
             <tbody>
-              <tr><td>0</td><td>Coarsest</td><td>5–15</td><td>Broad themes, cheap global search</td></tr>
-              <tr><td>1</td><td>Medium</td><td>50–100</td><td>Balanced detail vs. cost</td></tr>
-              <tr><td>2+</td><td>Finest</td><td>100s–1000s</td><td>Detailed analysis</td></tr>
+              <tr><th scope="row">0</th><td>Coarsest</td><td>5–15</td><td>Broad themes, cheap global search</td></tr>
+              <tr><th scope="row">1</th><td>Medium</td><td>50–100</td><td>Balanced detail vs. cost</td></tr>
+              <tr><th scope="row">2+</th><td>Finest</td><td>100s–1000s</td><td>Detailed analysis</td></tr>
             </tbody>
           </table>
         </div>
 
         <p>
-          Within a level, the partition has a clean invariant: every entity belongs to exactly one community, and the communities are non-overlapping. Across levels, the hierarchy is strict — a Level 1 community is a subset of one Level 0 community. This is what makes the next step work.
+          Within a level, the partition has a clean invariant: an entity belongs to at most one community, and the communities are non-overlapping. ("At most" because a community already at or below the size threshold isn't split further, so it has no descendants at deeper levels, and entities outside the largest connected component aren't clustered at all.) Across levels, the hierarchy is strict — a Level 1 community is a subset of one Level 0 community. This is what makes the next step work.
         </p>
 
         <h3>What gets materialized</h3>
 
         <p>
-          The output of indexing is a set of parquet tables, not a service. The chain is fully traceable end to end:
+          The output of indexing is a set of parquet tables, not a service. Every table carries IDs that link back to the one before it (columns abridged, per the v3 output schema):
         </p>
 
-        <pre><code>documents
+        <pre tabindex="0"><code>documents
   ↓
-text_units            <span class="tok-c"># chunks + character offsets</span>
+text_units            <span class="tok-c"># text, n_tokens, document_id, entity_ids[]</span>
   ↓
-entities              <span class="tok-c"># name, type, description, embedding</span>
-relationships         <span class="tok-c"># source, target, description, weight</span>
+entities              <span class="tok-c"># title, type, description, text_unit_ids[]</span>
+relationships         <span class="tok-c"># source, target, description, weight, text_unit_ids[]</span>
   ↓
-communities           <span class="tok-c"># parent_id, level, entity_ids[]</span>
+communities           <span class="tok-c"># parent, children[], level, entity_ids[], text_unit_ids[]</span>
 community_reports     <span class="tok-c"># title, summary, rating, findings[]</span>
 
-vector_store/         <span class="tok-c"># embeddings for entities, text_units, reports</span></code></pre>
+vector_store/         <span class="tok-c"># embeddings: entity descriptions, text units, report content</span></code></pre>
 
         <p>
-          Every claim in a community report points at entity IDs and relationship IDs. Those point at text unit offsets. Those point back at the source document. If a downstream answer cites a finding, you can walk all the way back to the sentence it came from. This is the property compliance and audit teams care about, and it's the property vector RAG cannot give you.
+          Community reports are prompted to cite entity and relationship IDs inline, as <code>[Data: Entities (…); Relationships (…)]</code>. Entities and relationships list the text units they were extracted from, and each text unit carries its <code>document_id</code>. If a downstream answer cites a finding, you can walk back to the source chunks, and from there to the passage. Two caveats. The citations are LLM-generated text, and GraphRAG doesn't validate them, so verify the IDs before you rely on them. And provenance ends at the chunk, not the sentence. Chunk-level provenance itself isn't unique to GraphRAG: a well-built vector RAG pipeline also keeps document IDs, chunk IDs, and metadata, and can cite its sources. What GraphRAG adds is a second evidence path. You can follow the entities and relationships behind a claim, see which other chunks support or contradict it, and see which community it rolled up into. That relationship-level audit trail is what compliance and audit teams tend to find useful.
         </p>
 
+        </section>
+        <section aria-labelledby="reports">
         <h2 id="reports">6. Community reports — the secret sauce</h2>
 
         <p>
@@ -980,16 +1160,16 @@ vector_store/         <span class="tok-c"># embeddings for entities, text_units,
           For every community at every level, an LLM is given the entities, relationships, and (for non-leaf communities) the sub-community reports it contains, and asked to write a structured report. The schema is rigid:
         </p>
 
-        <pre><code>{
+        <pre tabindex="0"><code>{
   <span class="tok-s">"title"</span>:   <span class="tok-c">// short, specific, names the entities</span>
   <span class="tok-s">"summary"</span>: <span class="tok-c">// executive summary of structure + themes</span>
-  <span class="tok-s">"rating"</span>:  <span class="tok-c">// 0–10 impact severity</span>
+  <span class="tok-s">"rating"</span>:  <span class="tok-c">// 0–10 impact severity (float)</span>
   <span class="tok-s">"rating_explanation"</span>: <span class="tok-c">// why this rating</span>
   <span class="tok-s">"findings"</span>: [
     {
       <span class="tok-s">"summary"</span>:     <span class="tok-c">// one-line finding headline</span>
-      <span class="tok-s">"explanation"</span>: <span class="tok-c">// grounded explanation with [Data: ...] refs</span>
-      <span class="tok-s">"references"</span>:  <span class="tok-c">// ["entity_id:123", "relationship_id:456", ...]</span>
+      <span class="tok-s">"explanation"</span>: <span class="tok-c">// grounded explanation; refs are inline text, e.g.</span>
+                     <span class="tok-c">// "[Data: Entities (5, 7); Relationships (23)]"</span>
     },
     <span class="tok-c">// 5–10 findings total</span>
   ]
@@ -1001,7 +1181,7 @@ vector_store/         <span class="tok-c"># embeddings for entities, text_units,
           </div>
           <details>
             <summary>View the official prompt (microsoft/graphrag)</summary>
-<pre><code>COMMUNITY_REPORT_PROMPT = """
+<pre tabindex="0"><code>COMMUNITY_REPORT_PROMPT = """
 You are an AI assistant that helps a human analyst to perform general information discovery.
 
 # Goal
@@ -1034,16 +1214,16 @@ Do not include information where the supporting evidence for it is not provided.
         </div>
 
         <figure class="wide">
-          <div class="diagram">
-            <svg viewBox="0 0 920 360" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;">
+          <div class="diagram" role="region" tabindex="0" aria-label="Community hierarchy diagram">
+            <svg viewBox="0 0 920 360" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;" role="img" aria-label="Community hierarchy: one root community at level 0, three communities at level 1, finer sub-communities at level 2, each with its own report.">
               <!-- level labels (left rail) -->
-              <g font-family="JetBrains Mono, monospace" font-size="10.5" font-weight="600" letter-spacing="1.5" fill="#94a3b8">
+              <g font-family="JetBrains Mono, monospace" font-size="10.5" font-weight="600" letter-spacing="1.5" fill="#64748b">
                 <text x="20" y="64">LEVEL 0</text>
-                <text x="20" y="68" font-size="9" fill="#cbd5e1">coarsest</text>
+                <text x="20" y="80" font-size="9" fill="#64748b">coarsest</text>
                 <text x="20" y="174">LEVEL 1</text>
-                <text x="20" y="178" font-size="9" fill="#cbd5e1">medium</text>
+                <text x="20" y="190" font-size="9" fill="#64748b">medium</text>
                 <text x="20" y="284">LEVEL 2</text>
-                <text x="20" y="288" font-size="9" fill="#cbd5e1">finest</text>
+                <text x="20" y="300" font-size="9" fill="#64748b">finest</text>
               </g>
 
               <!-- guide rails -->
@@ -1088,29 +1268,29 @@ Do not include information where the supporting evidence for it is not provided.
               <text x="340" y="293" text-anchor="middle" font-size="10" fill="#7c3aed">investor &amp; round</text>
 
               <!-- ellipsis indicating B and C also have children -->
-              <text x="500" y="282" text-anchor="middle" font-size="11" fill="#94a3b8" font-style="italic">B and C split further at level 2 …</text>
+              <text x="440" y="282" text-anchor="start" font-size="11" fill="#64748b" font-style="italic">B and C split further at level 2 …</text>
 
               <!-- footer note -->
               <g transform="translate(0,328)">
                 <text x="460" y="0" text-anchor="middle" font-size="11.5" fill="#475569">
-                  Each box gets its own LLM-generated report. Higher levels summarize their children.
+                  Each box gets its own LLM-generated report. Parents swap in child reports when raw context overflows.
                 </text>
               </g>
             </svg>
           </div>
-          <figcaption>Hierarchical Leiden produces a tree of communities. Each node in the tree — root, mid-level, leaf — gets its own LLM-generated report; parent reports are written from the children's reports, not the raw entities.</figcaption>
+          <figcaption>Hierarchical Leiden produces a tree of communities. Each node in the tree — root, mid-level, leaf — gets its own LLM-generated report. Reports are generated bottom-up. When a parent's raw entity and relationship context is too large for the prompt, the children's reports are substituted for it.</figcaption>
         </figure>
 
         <p>
-          <strong>Grounded references.</strong> The prompt instructs the LLM to cite entity IDs and relationship IDs for every claim, in the form <code>[Data: Entities (12, 18); Relationships (7)]</code>. The LLM is also told not to include information that isn't supported by the source data. This isn't watertight — LLMs hallucinate — but the structural requirement to cite IDs you can later verify cuts the failure rate substantially and gives you a place to audit when something looks wrong.
+          <strong>Grounded references.</strong> The prompt instructs the LLM to cite entity IDs and relationship IDs for every claim, in the form <code>[Data: Entities (12, 18); Relationships (7)]</code>. The LLM is also told not to include information that isn't supported by the source data. This isn't watertight — LLMs hallucinate, and nothing in the pipeline checks that the cited IDs actually support the claim. But the requirement to cite IDs gives you something concrete to verify, and a place to audit when something looks wrong.
         </p>
 
         <p>
-          <strong>Impact rating.</strong> Every report gets a 0–10 severity score. For a corpus of project risks this captures how serious the cluster is; for fiction, dramatic intensity; for customer feedback, complaint severity. The rating doesn't drive ranking directly — global search's reduce step ranks by the per-point ratings produced at map time (see §8) — but the community severity informs the map prompt and survives transitively into the reduce ordering. Without it, the LLM has no notion of which clusters in your corpus actually matter.
+          <strong>Impact rating.</strong> Every report gets a 0–10 severity score. For a corpus of project risks this captures how serious the cluster is; for fiction, dramatic intensity; for customer feedback, complaint severity. The rating doesn't drive ranking directly — global search's reduce step ranks by the per-point ratings produced at map time (see <a href="#global">§8</a>) — but the community severity informs the map prompt and survives transitively into the reduce ordering. Without it, the LLM has no notion of which clusters in your corpus actually matter.
         </p>
 
         <p>
-          <strong>Hierarchical substitution.</strong> A Level 0 community might contain 300 entities and 800 relationships. Their raw descriptions don't fit in any context window. So when GraphRAG writes the Level 0 report, it doesn't see raw entities — it sees the <em>reports</em> from the Level 1 children. The Level 0 report is then a summary of summaries, grounded transitively through the children to the original text. This is what lets community reports scale to large corpora: the tree absorbs the context-window problem.
+          <strong>Hierarchical substitution.</strong> A Level 0 community might contain, say, 300 entities and 800 relationships. Their raw descriptions won't fit in the report prompt's input budget (<code>community_reports.max_input_length</code>, 8,000 tokens by default). Reports are generated bottom-up, so by the time GraphRAG writes the Level 0 report the Level 1 reports already exist. When the raw context overflows, it substitutes the children's <em>reports</em> for raw entities, starting with the largest sub-communities, until the context fits. A community whose raw context fits is summarized directly from its entities and relationships. For large top-level communities the result is mostly a summary of summaries, grounded transitively through the children to the original text. This is what lets community reports scale to large corpora: the tree absorbs the context-window problem.
         </p>
 
         <div class="callout ok">
@@ -1118,6 +1298,8 @@ Do not include information where the supporting evidence for it is not provided.
           <p>Community reports turn synthesis from an inference-time problem into a retrieval problem. The LLM has already done the cross-document reading work at indexing time. At query time you don't ask it to synthesize — you ask it to filter and re-rank pre-written findings.</p>
         </div>
 
+        </section>
+        <section aria-labelledby="local">
         <h2 id="local">7. Local search</h2>
 
         <p>
@@ -1127,8 +1309,8 @@ Do not include information where the supporting evidence for it is not provided.
         <p>It runs in five steps:</p>
 
         <figure class="wide">
-          <div class="diagram">
-            <svg viewBox="0 0 920 220" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;">
+          <div class="diagram" role="region" tabindex="0" aria-label="Local search diagram">
+            <svg viewBox="0 0 920 220" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;" role="img" aria-label="Local search in five steps: embed query, match entities, traverse graph, pull context, LLM answer.">
               <defs>
                 <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
@@ -1180,27 +1362,29 @@ Do not include information where the supporting evidence for it is not provided.
         <h3>The context budget</h3>
 
         <p>
-          Step 4 is where most teams over- or under-spend. Local search uses a fixed token budget — 12,000 by default — and the prompt sections compete for it. The default allocation is:
+          Step 4 is where most teams over- or under-spend. Local search uses a fixed token budget (<code>local_search.max_context_tokens</code>, 12,000 by default), and the prompt sections compete for it. The default allocation (<code>text_unit_prop: 0.5</code>, <code>community_prop: 0.15</code>) is:
         </p>
 
         <ul>
           <li><strong>50% text units</strong> — the raw source chunks where matched entities appear.</li>
-          <li><strong>40% entity + relationship descriptions</strong> — the structured, LLM-written context.</li>
-          <li><strong>10% community report</strong> — the surrounding cluster's report, for orientation.</li>
+          <li><strong>15% community reports</strong> — reports of the communities the matched entities belong to, for orientation.</li>
+          <li><strong>The remaining ~35%: entity + relationship descriptions</strong> (and covariates, if enabled) — the structured, LLM-written context.</li>
         </ul>
 
         <p>
-          Relationship ranking inside the 40% slice has its own rule. <strong>In-network</strong> edges, where both endpoints matched the query, go first. <strong>Out-network</strong> edges, where only one endpoint matched, are ranked below in-network but kept — they're the source of "surprising context" answers, where the model knows something connected to your query that you didn't ask about. Cut them entirely and answer quality drops in a way that's hard to see in eval but obvious in user-facing demos.
+          Relationship ranking inside the entity/relationship slice has its own rule. <strong>In-network</strong> edges, where both endpoints matched the query, go first. <strong>Out-network</strong> edges, where only one endpoint matched, are ranked below in-network (by how many matched entities they link to, then by weight) but kept, up to a budget of <code>top_k_relationships</code> (10) per matched entity — they're the source of "surprising context" answers, where the model knows something connected to your query that you didn't ask about. In our experience, cutting them entirely hurts answer quality in a way that's hard to see in eval but obvious in user-facing demos.
         </p>
 
         <p>
           For "What retribution is Laura seeking?" — vector RAG looks for chunks where the tokens "Laura" and "retribution" appear close together. Local search finds the entity <em>Laura</em>, walks her relationships (rivals, allies, grievances, locations), pulls her community's report for context, and only then retrieves the chunks where she's named. The retrieval is structured by who she is, not by which words happen to be near her name.
         </p>
 
+        </section>
+        <section aria-labelledby="global">
         <h2 id="global">8. Global search</h2>
 
         <p>
-          Global search is the engine for the questions vector RAG can't touch. "What are the recurring themes?" "Compare risk profiles across these projects." "Summarize the antagonists." These questions don't have an entry-point entity, and the answer is distributed across the corpus.
+          Global search is the engine for the questions plain top-k vector RAG handles poorly. "What are the recurring themes?" "Compare risk profiles across these projects." "Summarize the antagonists." These questions don't have an entry-point entity, and the answer is distributed across the corpus.
         </p>
 
         <p>
@@ -1208,8 +1392,8 @@ Do not include information where the supporting evidence for it is not provided.
         </p>
 
         <figure class="wide">
-          <div class="diagram">
-            <svg viewBox="0 0 920 320" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;">
+          <div class="diagram" role="region" tabindex="0" aria-label="Global search diagram">
+            <svg viewBox="0 0 920 320" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;" role="img" aria-label="Global search map-reduce: shuffled batches of community reports are mapped to scored points in parallel, then ranked by importance score and reduced into a final answer.">
               <defs>
                 <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
@@ -1218,15 +1402,15 @@ Do not include information where the supporting evidence for it is not provided.
               <rect x="380" y="10" width="160" height="48" rx="8" fill="#dbeafe" stroke="#93c5fd"/>
               <text x="460" y="32" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="700">Query</text>
               <text x="460" y="49" text-anchor="middle" font-size="11" fill="#475569">"Recurring themes?"</text>
-              <text x="200" y="92" text-anchor="middle" font-size="11" fill="#94a3b8" font-weight="600" letter-spacing="2">MAP · PARALLEL</text>
+              <text x="200" y="92" text-anchor="middle" font-size="11" fill="#64748b" font-weight="600" letter-spacing="2">MAP · PARALLEL</text>
               <g font-size="12" fill="#0f172a">
                 <rect x="60"  y="105" width="280" height="38" rx="6" fill="#fff" stroke="#e2e8f0"/>
-                <text x="76" y="129" font-size="12">Community report #1 → LLM → [points]</text>
+                <text x="76" y="129" font-size="12">Report batch #1 → LLM → [points]</text>
                 <rect x="60"  y="148" width="280" height="38" rx="6" fill="#fff" stroke="#e2e8f0"/>
-                <text x="76" y="172" font-size="12">Community report #2 → LLM → [points]</text>
+                <text x="76" y="172" font-size="12">Report batch #2 → LLM → [points]</text>
                 <rect x="60"  y="191" width="280" height="38" rx="6" fill="#fff" stroke="#e2e8f0"/>
-                <text x="76" y="215" font-size="12">Community report #3 → LLM → [points]</text>
-                <text x="200" y="248" text-anchor="middle" font-size="11" fill="#94a3b8" font-style="italic">… one call per report, all in parallel</text>
+                <text x="76" y="215" font-size="12">Report batch #3 → LLM → [points]</text>
+                <text x="200" y="248" text-anchor="middle" font-size="11" fill="#64748b" font-style="italic">… one call per token-bounded batch, in parallel</text>
               </g>
               <line x1="380" y1="50" x2="340" y2="124" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
               <line x1="380" y1="50" x2="340" y2="167" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
@@ -1234,7 +1418,7 @@ Do not include information where the supporting evidence for it is not provided.
               <rect x="580" y="120" width="280" height="100" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
               <text x="720" y="143" text-anchor="middle" font-size="13" fill="#1e3a8a" font-weight="700">REDUCE</text>
               <text x="720" y="165" text-anchor="middle" font-size="11" fill="#475569">collect all points</text>
-              <text x="720" y="181" text-anchor="middle" font-size="11" fill="#475569">rank by impact_rating</text>
+              <text x="720" y="181" text-anchor="middle" font-size="11" fill="#475569">rank by importance score</text>
               <text x="720" y="197" text-anchor="middle" font-size="11" fill="#475569">LLM synthesizes top-N</text>
               <text x="720" y="213" text-anchor="middle" font-size="11" fill="#475569">into single answer</text>
               <line x1="345" y1="124" x2="580" y2="155" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
@@ -1245,28 +1429,27 @@ Do not include information where the supporting evidence for it is not provided.
               <line x1="720" y1="220" x2="720" y2="265" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arr2)"/>
             </svg>
           </div>
-          <figcaption>Global search: each community report is mapped to a list of points relevant to the query, then ranked and reduced into a single answer.</figcaption>
+          <figcaption>Global search: community reports are shuffled and packed into token-bounded batches. Each batch is mapped to a list of scored points relevant to the query, then the points are ranked and reduced into a single answer.</figcaption>
         </figure>
 
         <p>
-          The map step fans out one LLM call per community report, in parallel. Each call returns a JSON list of points, with each point carrying its own per-query relevance score on a 0–100 scale (distinct from the community-report severity rating, which lives on a 0–10 scale and is set at indexing time):
-        </p>
+          The map step doesn't make one call per report. The selected reports are shuffled and packed into batches that each fit the context budget (<code>global_search.max_context_tokens</code>, 12,000 by default), with each report's 0–10 rating included as a column. Then one LLM call runs per batch, in parallel. Each call returns a JSON list of points, each carrying its own per-query importance score on a 0–100 scale (distinct from the community-report severity rating, which is 0–10 and set at indexing time). The prompt below is a simplified paraphrase; the real ones live in <code>prompts/query/global_search_map_system_prompt.py</code> and <code>global_search_reduce_system_prompt.py</code>.</p>
 
-        <pre><code><span class="tok-c"># for each community report at level L (parallel)</span>
+        <pre tabindex="0"><code><span class="tok-c"># for each batch of community reports (parallel) — simplified</span>
 prompt = f<span class="tok-s">"""
-You are given a community report and a user query.
-Extract the points from this report that are relevant
-to the query. For each point, give an importance rating 0–100.
+You are given a table of community reports and a user query.
+Extract the points from these reports that are relevant
+to the query. For each point, give an importance score 0–100.
 
-Return strict JSON: [{{ "point": str, "rating": int }}]
+Return JSON: {{ "points": [{{ "description": str, "score": int }}] }}
 
-Community report: {report}
+Reports: {report_batch}
 Query: {query}
 """</span></code></pre>
 
-        <p>The reduce step collects every point across every batch, sorts by rating, and asks the LLM one more time:</p>
+        <p>The reduce step collects every point across every batch, drops points scored 0, sorts the rest by score, packs as many as fit the budget, and asks the LLM one more time:</p>
 
-        <pre><code><span class="tok-c"># reduce</span>
+        <pre tabindex="0"><code><span class="tok-c"># reduce</span>
 prompt = f<span class="tok-s">"""
 Synthesize the highest-rated points below into a single
 coherent answer to the user's query. Preserve citations.
@@ -1276,65 +1459,67 @@ Query: {query}
 """</span></code></pre>
 
         <p>
-          The level you pick controls the bill. Level 0 might be ten community reports — ten map calls, one reduce call. Level 2 might be a thousand. The granularity of the answer scales with the level, but so does the cost and the latency.
+          The level you pick controls the bill. <code>--community-level</code> defaults to 2. Without dynamic selection, each entity is represented by its deepest community at levels 0 through that value, and the reports for those communities are loaded. Level 0 might be ten community reports, which fit into one or two map batches plus one reduce call. Level 2 might be a thousand reports and dozens of map batches. The granularity of the answer scales with the level, but so does the cost and the latency.
         </p>
 
-        <h3>Dynamic community selection</h3>
+        <h3 id="dynamic-selection">Dynamic community selection</h3>
 
         <p>
           Brute-force global search at Level 2 is expensive and, more importantly, much of the cost is wasted. The query "recurring risks in financial reports" doesn't need to map over a community about office furniture. Dynamic selection fixes this.
         </p>
 
         <p>
-          The algorithm walks the community tree from the root. At each node, an LLM is given the community's report and the user query and asked, in effect: "is this community's content relevant to this query?" Irrelevant subtrees are pruned. Relevant ones are descended into. The map step is only ever run on the surviving leaves.
+          The algorithm walks the community tree from the root (Level 0). For each community, an LLM is given the community's report and the user query and asked to rate relevance on a 0–5 scale. Communities rated at or above a threshold (default 1) are kept, and their children are queued for rating. Unrelated subtrees are pruned. By default a parent is dropped once one of its children is judged relevant, so the map step runs on the deepest relevant communities rather than on whole subtrees. The rating calls aren't free: every visited community costs one LLM call, which is why Microsoft used a cheaper rater model (GPT-4o-mini) in its evaluation.
         </p>
 
         <p>
-          The cost savings are large — typically 5–10× — but the more interesting result is that <strong>quality often improves</strong>. With brute-force selection, the reduce step is fed points extracted from hundreds of irrelevant reports, and many of them are noise that happened to keyword-match the query. Pruning at the tree level keeps that noise out of the reduce context entirely. The LLM ends up with a smaller, cleaner set of points to synthesize.
+          Microsoft's published evaluation (<a href="https://www.microsoft.com/en-us/research/blog/graphrag-improving-global-search-via-dynamic-community-selection/" target="_blank" rel="noopener">GraphRAG: improving global search via dynamic community selection</a>) used an AP News dataset, 50 global questions, a GPT-4o-mini rater, and GPT-4o for map-reduce. Dynamic selection at Level 1 cut average cost by <strong>77%</strong> (about 4×) versus static Level 1, with no statistically significant difference in answer quality. Dynamic selection at Level 3 produced a moderate but statistically significant improvement in comprehensiveness and empowerment, at <strong>34% higher</strong> cost than static Level 1. Those are results for one dataset and one model pair; your ratio will differ. The mechanism behind the quality gain is intuitive. With brute-force selection, the reduce step is fed points from many irrelevant reports. Pruning at the tree level keeps that noise out of the reduce context, so the LLM has a smaller, cleaner set of points to synthesize.
         </p>
 
         <div class="callout ok">
-          <span class="label">Default this on</span>
-          <p>In production, dynamic selection is not a tuning knob. It's the only sensible default for global search past a few dozen communities.</p>
+          <span class="label">Our recommendation: turn this on</span>
+          <p>This is our production recommendation, not GraphRAG's default. As of v3.3.0, dynamic selection is <strong>off</strong> unless you pass <code>graphrag query --method global --dynamic-community-selection</code> (or set it in the API call). The tuning knobs live under <code>global_search</code>: <code>dynamic_search_threshold: 1</code>, <code>dynamic_search_keep_parent: false</code>, <code>dynamic_search_num_repeats: 1</code>, <code>dynamic_search_use_summary: false</code>, <code>dynamic_search_max_level: 2</code>. Past a few dozen communities, we treat it as the default for global search. Note that in v3.3.0 the CLI/config path reuses the global-search completion model for rating (a separate rater model is still a TODO in <code>query/factory.py</code>). To use a cheaper rater like Microsoft's evaluation did, build <code>DynamicCommunitySelection</code> yourself through the Python API.</p>
         </div>
 
+        </section>
+        <section aria-labelledby="routing">
         <h2 id="routing">9. Query modes and agentic routing</h2>
 
         <p>
-          GraphRAG ships four query engines. Each one has a workload it's good at, and forcing the user to pick is the wrong design.
+          GraphRAG ships four query engines (<code>graphrag query --method basic|local|global|drift</code>). Each one has a workload it's good at, and forcing the user to pick is the wrong design. The latency column is illustrative, from our deployments. It isn't an official benchmark and moves a lot with model, corpus, and community level.
         </p>
 
-        <div class="table-wrap">
+        <div class="table-wrap" role="region" tabindex="0" aria-label="GraphRAG query modes">
           <table>
             <thead>
-              <tr><th>Mode</th><th>Best for</th><th>Mechanism</th><th>Latency</th><th>Cost</th></tr>
+              <tr><th scope="col">Mode</th><th scope="col">Best for</th><th scope="col">Mechanism</th><th scope="col">Latency</th><th scope="col">Cost</th></tr>
             </thead>
             <tbody>
               <tr>
-                <td><code>basic</code></td>
+                <th scope="row"><code>basic</code></th>
                 <td>Simple lookups, baseline</td>
                 <td>Top-k vector search over chunks</td>
                 <td>&lt;1s</td>
                 <td>Low</td>
               </tr>
               <tr>
-                <td><code>local</code></td>
+                <th scope="row"><code>local</code></th>
                 <td>Entity-anchored questions</td>
                 <td>Embed → entities → graph walk → context</td>
                 <td>1–2s</td>
                 <td>Medium</td>
               </tr>
               <tr>
-                <td><code>global</code></td>
+                <th scope="row"><code>global</code></th>
                 <td>Themes, comparisons, overviews</td>
                 <td>Map-reduce over community reports</td>
                 <td>5–15s</td>
                 <td>High</td>
               </tr>
               <tr>
-                <td><code>drift</code></td>
+                <th scope="row"><code>drift</code></th>
                 <td>Complex — breadth <em>and</em> depth</td>
-                <td>Global → local drilling via LLM follow-ups</td>
+                <td>Primer over top-K similar community reports → local-search follow-ups</td>
                 <td>10–30s</td>
                 <td>Highest</td>
               </tr>
@@ -1343,16 +1528,16 @@ Query: {query}
         </div>
 
         <p>
-          DRIFT (Dynamic Reasoning and Inference with Flexible Traversal) starts with global, gets a broad answer, then has an LLM generate follow-up questions that local search drills into. The output mixes the breadth of global with the precision of local. It's the mode users like best when latency budgets allow.
+          DRIFT (Dynamic Reasoning and Inference with Flexible Traversal) does not run a full global map-reduce. Its primer embeds the query (HyDE-style expansion) and compares it against the top-K most semantically similar community reports. From those it produces a broad initial answer and a set of follow-up questions. Local search then answers the follow-ups, which generate further follow-ups, for <code>n_depth</code> rounds (default 3). A final reduce step combines the hierarchy of intermediate answers. The output mixes community-level breadth with the precision of local. In Microsoft's <a href="https://www.microsoft.com/en-us/research/blog/introducing-drift-search-combining-global-and-local-search-methods-to-improve-quality-and-efficiency/" target="_blank" rel="noopener">DRIFT evaluation</a> (5K+ AP News articles, 50 local questions, LLM-judged), DRIFT beat local search on comprehensiveness 78% of the time and on diversity 81% of the time.
         </p>
 
-        <h3>Routing</h3>
+        <h3 id="routing-heuristic">Routing queries automatically</h3>
 
         <p>
-          Don't expose the four modes to users. Route automatically. A small classifier or even a keyword heuristic catches most of the traffic, and the router's cost is negligible next to running the wrong mode.
+          Don't expose the four modes to users. Route automatically. GraphRAG doesn't ship a router; this is application-level logic you write yourself. A small classifier or even a keyword heuristic catches most of the traffic, and the router's cost is negligible next to running the wrong mode.
         </p>
 
-        <pre><code><span class="tok-k">def</span> <span class="tok-f">route</span>(query: str) -> str:
+        <pre tabindex="0"><code><span class="tok-k">def</span> <span class="tok-f">route</span>(query: str) -> str:
     q = query.lower()
 
     <span class="tok-c"># broad thematic signals → global</span>
@@ -1370,15 +1555,17 @@ Query: {query}
     <span class="tok-k">return</span> <span class="tok-s">"basic"</span></code></pre>
 
         <p>
-          The above will misroute some queries. That's fine. The graceful failure mode is "ran the cheaper mode when global would have been better" — which produces a less complete answer, not a wrong one. A small LLM classifier reads the query and produces a routing decision in ~50 tokens; the savings on routing a single question away from global pays for thousands of classifier calls.
+          The above will misroute some queries. That's fine. The common failure mode is "ran the cheaper mode when global would have been better", which usually produces a less complete answer rather than an outright wrong one. That isn't guaranteed, though: an incomplete answer to a "what are all the…" question can still mislead. A small LLM classifier reads the query and produces a routing decision in ~50 output tokens. Rough arithmetic: a global query that maps ten 12k-token batches reads ~120k input tokens, while a classifier call reads a few hundred. One question routed away from global therefore pays for hundreds of classifier calls on the same model, and thousands on a smaller one.
         </p>
 
+        </section>
+        <section aria-labelledby="production">
         <h2 id="production">10. Production concerns</h2>
 
         <h3>Cost and latency</h3>
 
         <p>
-          Indexing is the line item that surprises people. On a 10,000-chunk corpus with GPT-4o-class extraction, the dominant cost is extraction itself — one LLM call per chunk, with non-trivial output tokens. Add another LLM call per community at every level, plus embedding calls for entities and text units. Indexing a fresh corpus typically runs into the low thousands of dollars before any user has asked a question.
+          Indexing is the line item that surprises people. Microsoft estimates graph extraction at roughly 75% of standard indexing cost: one extraction call per chunk plus one gleaning call by default, with non-trivial output tokens. Add description-summarization calls, one report call per community at every level, and embedding calls for entities, text units, and reports. An illustrative estimate, not a measurement: a 10,000-chunk corpus at the default 1,200 tokens is about 12M tokens of text. Assume ~1,800 prompt tokens, ~800 output tokens per call, and one gleaning pass. Extraction then reads ~70M input tokens and writes ~16M output tokens. At GPT-4o list prices ($2.50 / $10 per 1M tokens) that's ~$330, or roughly $450 for the whole index if extraction is ~75% of it. At GPT-4-Turbo-era prices ($10 / $30) the same corpus lands around $1,500. Re-run the arithmetic with your model's prices and a sample of real extraction outputs, which vary a lot by domain.
         </p>
 
         <p>
@@ -1386,28 +1573,28 @@ Query: {query}
         </p>
 
         <ul>
-          <li><strong>Dynamic community selection</strong> for every global query.</li>
+          <li><strong><a href="#dynamic-selection">Dynamic community selection</a></strong> for every global query.</li>
           <li><strong>Aggressive result caching</strong> — the same broad query is asked a lot.</li>
-          <li><strong>Routing</strong> away from global when the query doesn't need it.</li>
+          <li><strong><a href="#routing-heuristic">Routing</a></strong> away from global when the query doesn't need it.</li>
         </ul>
 
-        <h3>Data freshness</h3>
+        <h3 id="freshness">Data freshness</h3>
 
         <p>
-          This is the place GraphRAG hurts the most relative to vector RAG. With a vector store you can append a chunk and the next query sees it. With GraphRAG, appending a chunk gives you a few orphan entities that aren't reflected in any community report. Global search quality degrades silently — the corpus has moved, the summaries haven't.
+          This is the place GraphRAG hurts the most relative to vector RAG. With a vector store you can append a chunk and the next query sees it. GraphRAG has supported incremental indexing since v0.4.0 (CLI entry point <code>graphrag update</code> since v0.4.1), but it is an append-and-merge, not a re-clustering. In v3.3.0, <code>graphrag update</code> runs the standard pipeline on the new documents only. It merges the resulting entities into the existing ones by title and re-summarizes the merged descriptions. It merges relationships by (source, target). It then <em>appends</em> the new documents' own communities and reports with offset IDs, writing to a separate <code>update_output</code> storage so your previous index is preserved. What it does not do is re-run Leiden over the combined graph or regenerate existing community reports. An old report stays as written even when new data changes its community's members, and global search quality drifts silently: the corpus has moved, the old summaries haven't.
         </p>
 
         <p>Three strategies, in order of cost:</p>
 
         <ol>
-          <li><strong>Full re-index</strong> on a schedule (nightly or weekly). Highest consistency. This is the default production pattern.</li>
-          <li><strong>Incremental append.</strong> Add new docs to extraction, skip the community/summary refresh. Cheap; degrades global search over time. Useful as a stopgap between re-indexes.</li>
-          <li><strong>Hybrid re-index</strong> of touched communities only. Identify which communities the new entities landed in, re-summarize those. Saves a lot of money, requires custom tooling, and isn't yet a first-class part of the framework.</li>
+          <li><strong>Full re-index</strong> on a schedule (nightly or weekly). Highest consistency. The LLM cache (on by default) makes repeated extraction of unchanged chunks cheap, but clustering and community reports are recomputed.</li>
+          <li><strong>Incremental update</strong> (<code>graphrag update</code>, first-class since v0.4.x). New docs are extracted and merged at the entity/relationship level, and their own communities and reports are appended. Cheap. But the existing hierarchy isn't recomputed, so cross-batch themes are under-represented in global search over time. Useful between full re-indexes.</li>
+          <li><strong>Selective recomputation</strong> of touched communities only. Re-cluster the affected part of the graph, identify which existing communities the new or changed entities landed in, and re-summarize just those and their ancestors. This can save a lot of money, but as of v3.3.0 it isn't part of the framework: <code>graphrag update</code> doesn't do it, so it requires custom tooling.</li>
         </ol>
 
         <div class="callout">
-          <span class="label">Production pattern</span>
-          <p>Run a nightly full re-index. For "what happened today," fall back to plain vector RAG over the day's new documents. Two retrieval paths, one consistent product surface.</p>
+          <span class="label">Our production pattern</span>
+          <p>Run a nightly full re-index (or <code>graphrag update</code> between less frequent full re-indexes). For "what happened today," fall back to plain vector RAG over the day's new documents. Two retrieval paths, one consistent product surface.</p>
         </div>
 
         <h3>Prompt tuning is the highest-leverage knob</h3>
@@ -1428,29 +1615,28 @@ Query: {query}
 
         <p>The auto-tune workflow is fast and worth running before you do anything else:</p>
 
-        <pre><code><span class="tok-c"># 1. sample the corpus</span>
-graphrag sample --root ./data --limit 10
+        <pre tabindex="0"><code><span class="tok-c"># 1. sample the corpus + generate domain-specific persona and few-shot examples</span>
+<span class="tok-c">#    (sampling is built into prompt-tune: --selection-method random|top|all|auto, --limit)</span>
+graphrag prompt-tune --root ./data --domain <span class="tok-s">"my-domain"</span> --selection-method random --limit 15
 
-<span class="tok-c"># 2. generate domain-specific persona + few-shot examples</span>
-graphrag prompt-tune --root ./data --domain <span class="tok-s">"my-domain"</span>
-
-<span class="tok-c"># 3. inspect what it produced</span>
+<span class="tok-c"># 2. inspect what it produced (v3 filenames, the same paths settings.yaml</span>
+<span class="tok-c">#    points at after `graphrag init`)</span>
 ls prompts/
-<span class="tok-c">#   entity_extraction.txt</span>
-<span class="tok-c">#   community_report.txt</span>
+<span class="tok-c">#   extract_graph.txt</span>
 <span class="tok-c">#   summarize_descriptions.txt</span>
+<span class="tok-c">#   community_report_graph.txt</span>
 
-<span class="tok-c"># 4. index</span>
+<span class="tok-c"># 3. index</span>
 graphrag index --root ./data</code></pre>
 
-        <h3>When to use GraphRAG vs vector RAG</h3>
+        <h3 id="when-to-use">When to use GraphRAG vs vector RAG</h3>
 
         <p>For most production systems: <strong>use both</strong>. Vector RAG is cheap, fast, and updates incrementally; GraphRAG is expensive and powerful. The decision criteria:</p>
 
-        <div class="table-wrap">
+        <div class="table-wrap" role="region" tabindex="0" aria-label="When to use GraphRAG vs vector RAG">
           <table>
             <thead>
-              <tr><th>Reach for GraphRAG when…</th><th>Stick to vector RAG when…</th></tr>
+              <tr><th scope="col">Reach for GraphRAG when…</th><th scope="col">Stick to vector RAG when…</th></tr>
             </thead>
             <tbody>
               <tr>
@@ -1470,13 +1656,15 @@ graphrag index --root ./data</code></pre>
                 <td>Cost/latency budget is tight</td>
               </tr>
               <tr>
-                <td>Traceable, ID-grounded citations are required</td>
+                <td>Relationship-level evidence trails (entity → relationship → source chunks) are required, not just chunk citations</td>
                 <td>No need for cross-document synthesis</td>
               </tr>
             </tbody>
           </table>
         </div>
 
+        </section>
+        <section aria-labelledby="close">
         <h2 id="close">11. Mental model and closing</h2>
 
         <div class="callout">
@@ -1486,7 +1674,7 @@ graphrag index --root ./data</code></pre>
 
         <div class="callout">
           <span class="label">GraphRAG</span>
-          <p style="margin:0"><strong>"Build a map of all the knowledge first, then navigate it."</strong> Expensive to build, harder to update, but synthesis is a retrieval problem instead of a hope. Pre-computed reasoning at indexing time is what makes global queries answerable at all.</p>
+          <p style="margin:0"><strong>"Build a map of all the knowledge first, then navigate it."</strong> Expensive to build, harder to update, but synthesis is a retrieval problem instead of a hope. Pre-computed reasoning at indexing time is what makes global queries tractable.</p>
         </div>
 
         <p>
@@ -1501,9 +1689,58 @@ graphrag index --root ./data</code></pre>
           None of this is hypothetical for us. At <a href="https://omundu.ai" target="_blank" rel="noopener">Omundu</a> we build <a href="https://www.omundu.ai/index.php/en/accueil-eng/#solutioneng" target="_blank" rel="noopener">Unity Forge</a>, an agentic AI platform for industrial maintenance — automotive, heavy industry, oil &amp; gas. Our corpora are exactly the kind GraphRAG was built for: tangled manuals, schematics, GMAO records, and 3D plans, where a technician's question almost never has its answer in a single chunk. <strong>Multimodal GraphRAG</strong> — graphs over text, images, and structured data together — is what we're working on next. If that's your problem too, let's talk.
         </p>
 
-        <div class="footer">
+        </section>
+        <section aria-labelledby="faq">
+        <h2 id="faq">12. Frequently asked questions</h2>
+
+              <div class="faq">
+          <details class="faq-item" id="faq-what-is-graphrag">
+            <summary><h3>What is GraphRAG?</h3></summary>
+            <p>
+              A RAG architecture that indexes a corpus as a knowledge graph plus a hierarchy of LLM-written community summaries, then retrieves from that structure at query time. It answers both entity-specific questions and questions about the corpus as a whole.
+            </p>
+          </details>
+          <details class="faq-item" id="faq-vs-rag">
+            <summary><h3>How does GraphRAG differ from traditional RAG?</h3></summary>
+            <p>
+              Traditional vector RAG embeds chunks and retrieves the top-k most similar to the query; all reasoning happens at query time over whatever came back. GraphRAG moves work to indexing: it extracts entities and relationships, clusters them, and pre-summarizes every cluster. That gives it something vector RAG lacks — summaries that already aggregate information across documents — at the price of an index that is far more expensive to build and slower to update. The <a href="#pipeline">comparison table in §2</a> lays out the tradeoffs.
+            </p>
+          </details>
+          <details class="faq-item" id="faq-when-to-use">
+            <summary><h3>When should developers use GraphRAG?</h3></summary>
+            <p>
+              When the workload needs cross-document reasoning: recurring themes, comparisons, or overviews of a large corpus, ideally in a domain with well-defined entities and where relationship-level evidence trails matter (chunk-level citations alone are achievable with vector RAG too). If most questions are specific lookups, the data changes by the minute, or the budget is tight, vector RAG is the better default. Many production systems run both behind a router (<a href="#when-to-use">decision table in §10</a>).
+            </p>
+          </details>
+          <details class="faq-item" id="faq-limitations">
+            <summary><h3>What are its main limitations?</h3></summary>
+            <ul>
+              <li><strong>Indexing cost</strong> — about two LLM calls per chunk (extraction + one default gleaning), plus description summaries and one call per community. Our illustrative estimate for a 10,000-chunk corpus is several hundred dollars at GPT-4o list prices, and more with larger models (<a href="#production">derivation in §10</a>).</li>
+              <li><strong>Freshness</strong> — <code>graphrag update</code> (incremental indexing, since v0.4.x) merges new entities and appends communities and reports for the new documents. It doesn't re-cluster the graph or rewrite existing reports, so a periodic full re-index is still needed to keep the hierarchy coherent.</li>
+              <li><strong>No entity resolution</strong> — "Acme" and "Acme Corp" stay separate nodes.</li>
+              <li><strong>Generic default prompts</strong> — tuned for people, organizations, and places; other domains need <code>prompt-tune</code>.</li>
+              <li><strong>Latency</strong> — in our deployments, global search takes roughly 5–15s and DRIFT 10–30s, versus ~1s for vector RAG. These are illustrative figures, not benchmarks, and depend on model, corpus, and community level.</li>
+            </ul>
+          </details>
+          <details class="faq-item" id="faq-local-vs-global">
+            <summary><h3>How do Local Search and Global Search differ?</h3></summary>
+            <p>
+              Local search starts from entities. It matches the query against entity embeddings, walks their graph neighborhood, and packs descriptions, relationships, source chunks, and a community report into a fixed token budget. Global search has no entry point. It maps over batches of community reports at a chosen level, extracting scored points relevant to the query, then reduces the top-scored points into one answer. Use local for "what does module X depend on?" and global for "what are the recurring risks?" Details in <a href="#local">§7</a> and <a href="#global">§8</a>.
+            </p>
+          </details>
+          <details class="faq-item" id="faq-production">
+            <summary><h3>Is GraphRAG production-ready?</h3></summary>
+            <p>
+              Yes, with operational work. The open-source implementation produces parquet tables, not a service, so scheduling, caching, and routing are yours to build. The pattern that holds up: tune prompts for your domain, run a scheduled full re-index, enable dynamic community selection for global queries (off by default in GraphRAG; our recommendation), route queries automatically, and keep vector RAG for documents added since the last index (<a href="#production">§10</a>).
+            </p>
+          </details>
+        </div>
+
+        </section>
+
+        <footer class="footer">
           <div class="footer-author">
-            <img src="images/ilhem.png" alt="Ilhem Bekkar" />
+            <img src="images/ilhem-bekkar.jpg" alt="" width="64" height="64" loading="lazy" decoding="async" />
             <div>
               <div class="footer-author-name">
                 Ilhem Bekkar
@@ -1529,9 +1766,18 @@ graphrag index --root ./data</code></pre>
           <div class="footer-thanks">
             Thanks for reading.
           </div>
-        </div>
+        </footer>
 
       </article>
     </main>
+    <script>
+      // Open the FAQ item targeted by the URL hash (e.g. #faq-limitations).
+      function openFaqFromHash() {
+        var el = location.hash && document.getElementById(location.hash.slice(1));
+        if (el && el.classList.contains("faq-item")) el.open = true;
+      }
+      window.addEventListener("hashchange", openFaqFromHash);
+      openFaqFromHash();
+    </script>
   </body>
 </html>
